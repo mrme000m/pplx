@@ -1,6 +1,6 @@
 ---
 name: perplexity-settings
-description: Use this skill when auditing Perplexity account/client settings, checking auth, BWS cookie loading, credits, rate limits, dynamic models, memories, tasks, workflows, AI profile, Space memory config, or plugin setup. Triggers on "Perplexity settings", "pplx status", "credits", "rate limits", "memories", "workflows", "models", "auth check", "BWS_ACCESS_TOKEN", "perplexity-cookies".
+description: This skill should be used when the user asks to "Perplexity settings", "pplx status", "credits", "rate limits", "memories", "workflows", "models", "auth check", "BWS_ACCESS_TOKEN", "perplexity-cookies", or when auditing Perplexity account/client state, BWS cookie loading, dynamic models, or plugin setup.
 version: 1.1.0
 ---
 
@@ -59,3 +59,18 @@ Summarize, do not dump raw JSON. Include:
 - recommended cleanup or setup actions
 
 Ask before deleting memories, tasks, Spaces, or files.
+
+## Space Audit Notes
+
+When auditing Spaces, check `user_permission`:
+
+| Permission | Meaning | Action |
+|-----------|---------|--------|
+| `4` | User-owned Space | Safe to delete via API |
+| `6` | System-managed Space (e.g. Bookmarks) | Cannot delete via API — skip during cleanup |
+
+System Spaces include the built-in **Bookmarks** space (`bookmarks-*` slug), which
+aggregates all saved/bookmarked threads and files from across Perplexity. It has
+`user_permission: 6` and the API returns 400 on DELETE attempts. The Space itself
+is Perplexity-managed, but users can freely add/remove individual threads inside it
+to manage what's bookmarked. Delete the Space container via the web UI only.

@@ -21,18 +21,24 @@ class APICapturer:
     def start_browser(self) -> bool:
         try:
             import cloakbrowser
-            self.browser_pid = cloakbrowser.launch(port=self.cdp_port, headless=True, remote_debugging=True)
-            return self.browser_pid is not None
+            self._browser = cloakbrowser.launch(
+                headless=True,
+                args=[
+                    f"--remote-debugging-port={self.cdp_port}",
+                    "--remote-allow-origins=*",
+                ],
+                stealth_args=False,
+            )
+            return self._browser is not None
         except ImportError:
             print("ERROR: CloakBrowser not installed")
             return False
 
     def stop_browser(self):
-        if self.browser_pid:
-            import os, signal
+        if self._browser:
             try:
-                os.kill(self.browser_pid, signal.SIGTERM)
-            except ProcessLookupError:
+                self._browser.close()
+            except Exception:
                 pass
 
     def connect(self) -> bool:

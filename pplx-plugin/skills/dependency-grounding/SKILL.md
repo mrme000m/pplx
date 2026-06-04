@@ -1,6 +1,6 @@
 ---
 name: dependency-grounding
-description: Use this skill when implementing or reviewing code that depends on external libraries, APIs, frameworks, or tools whose current syntax may have changed. Triggers on dependency manifests, package upgrades, unfamiliar imports, "verify docs", "latest API", "breaking changes", "is this pattern current", or framework configuration edits.
+description: This skill should be used when implementing or reviewing code with external dependencies whose syntax may have changed, when the user asks to "verify docs", "latest API", "breaking changes", "is this pattern current", or when dependency manifests are edited, package upgrades occur, or unfamiliar imports are detected.
 version: 1.1.0
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: research-deep-dive
-description: Use this skill when the user asks for thorough Perplexity research, current best practices, comparative analysis, technical investigation, deep research, source-grounded answers, Space-scoped research, or follow-up chains. Triggers on "research thoroughly", "deep dive", "latest", "current state", "compare", "investigate", "source-grounded", "Perplexity research".
+description: This skill should be used when the user asks for thorough Perplexity research, current best practices, comparative analysis, technical investigation, "deep dive", "latest", "current state", "compare", "investigate", "source-grounded", or "Perplexity research", or when Space-scoped research or follow-up chains are needed.
 version: 1.1.0
 ---
 

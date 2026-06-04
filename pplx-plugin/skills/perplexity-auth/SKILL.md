@@ -2,21 +2,51 @@
 name: perplexity-auth
 version: 1.1.0
 description: |
-  Perplexity AI authentication, session management, and diagnostic verification.
-  Handles automated login via CloakBrowser CDP, Gmail OTP extraction, Bitwarden
-  credential storage, session health checks, CLI command verification, and
-  network traffic analysis.
-
-  Triggers: "perplexity login", "refresh perplexity cookies", "perplexity auth",
-  "re-login perplexity", "perplexity session expired", "perplexity health check",
-  "verify perplexity", "perplexity debug", "analyze perplexity traffic",
-  "perplexity endpoint discovery".
+  This skill should be used when the user needs Perplexity AI authentication, session management, or diagnostic verification. Trigger phrases include perplexity login, perplexity auth, refresh perplexity cookies, perplexity session expired, perplexity health check, verify perplexity, perplexity debug, analyze perplexity traffic, or perplexity endpoint discovery. Provides automated login via CloakBrowser CDP, Gmail OTP extraction, Bitwarden credential storage, and network traffic analysis.
 
 ---
 
 # Perplexity Authentication & Diagnostics
 
 Consolidated auth suite combining login automation, session management, diagnostics, and traffic analysis. All scripts live under `scripts/` with detailed reference docs in `references/`.
+
+## Architecture Overview
+
+The auth skill manages Perplexity session lifecycle through three subsystems: authentication (login automation via CloakBrowser CDP), session management (cookie storage via disk and Bitwarden), and diagnostics (health checks, traffic analysis, CLI verification).
+
+### Login Flow
+
+Authentication uses a 12-step magic-link flow:
+1. Launch CloakBrowser with CDP remote debugging port
+2. Navigate to perplexity.ai
+3. Click Sign In button
+4. Fill email field and submit
+5. Perplexity sends magic-link email
+6. Poll Gmail IMAP for the email
+7. Extract 6-digit token via regex from `extract_otp.py`
+8. Fill OTP on Perplexity verification page
+9. Wait for redirect to logged-in homepage
+10. Extract cookies via CDP `Network.getAllCookies`
+11. Save cookies to `~/.config/perplexity/cookies.json`
+12. Optionally sync to Bitwarden Secure Note
+
+### Three-Layer Storage Model
+
+| Layer | Storage | Purpose |
+|-------|---------|---------|
+| Disk | `~/.config/perplexity/cookies.json` | Fast SDK access, primary source |
+| Bitwarden | Secure Note `perplexity.ai` | Backup and cross-machine sync |
+| Browser Profile | CloakBrowser SQLite + localStorage | Full state reuse between sessions |
+
+### Key Design Decisions
+
+- **CloakBrowser over stock Chrome**: Bypasses Cloudflare/Turnstile challenges that block automated login
+- **Magic-link over password**: No Perplexity password stored; authentication flows through Gmail OTP
+- **Dual cookie storage**: Disk for speed, Bitwarden for reliability and cross-machine availability
+- **CDP over Selenium/Playwright**: Direct WebSocket API for fine-grained browser control
+- **No modifications to pplx-sdk**: Traffic debug via pre-import monkey-patch, not SDK changes
+
+**See**: `references/architecture.md` for complete directory structure and component details
 
 ## Quick Start
 
@@ -54,6 +84,20 @@ python3 <skill>/scripts/diagnostics/health_check.py --quick
 # Full: + session validation via API
 python3 <skill>/scripts/diagnostics/health_check.py --full
 ```
+
+## When to Use Each Script
+
+| Scenario | Script | Reason |
+|----------|--------|--------|
+| First-time setup | `bw_credentials.py setup` | Store email and Gmail app password |
+| Daily login (session valid) | `login.py --bw-load` | Fast, loads cookies from Bitwarden |
+| Session expired | `login.py --bw-save` | Full browser login, saves new cookies |
+| CI/CD pipeline | `examples/ci-integration.sh` | Automated, non-interactive flow |
+| Nightly refresh | `examples/session-refresh-loop.sh` | Cron-based session refresh |
+| Debug API calls | `debug_client.py` | HAR capture for endpoint analysis |
+| Verify CLI state | `verify_cli.py` | Command-level health check |
+| Check session validity | `session_status.py` | API-based session validation |
+| Health diagnostics | `health_check.py` | Full dependency and cookie check |
 
 ## Subsystem Reference
 
@@ -150,10 +194,21 @@ CLOAK_CDP_PORT=9223
 
 **See**: `references/troubleshooting.md`
 
-## Next Steps
+## Additional Resources
 
-- **First time?** → Read `references/architecture.md`
-- **Setting up Bitwarden?** → Follow `references/bitwarden-setup.md`
-- **Need to debug?** → Use `examples/debug-scenario.sh`
-- **CI integration?** → Copy `examples/ci-integration.sh`
-- **Stuck?** → Check `references/troubleshooting.md`
+### Reference Files
+- **`references/architecture.md`** — Complete directory structure and design decisions
+- **`references/authentication-flow.md`** — 12-step login flow deep-dive
+- **`references/session-management.md`** — Session lifecycle and storage details
+- **`references/bitwarden-setup.md`** — Bitwarden CLI and BWS configuration
+- **`references/diagnostics.md`** — Diagnostic workflow details
+- **`references/development-tools.md`** — Traffic analysis and UI investigation
+- **`references/environment-reference.md`** — Environment variable reference
+- **`references/troubleshooting.md`** — Common issues and resolutions
+
+### Examples
+- **`examples/session-refresh-loop.sh`** — Nightly cron-based session refresh
+- **`examples/ci-integration.sh`** — CI/CD non-interactive authentication
+- **`examples/debug-scenario.sh`** — Scenario-specific debugging
+- **`examples/quick-auth-flow.sh`** — Quick auth test flow
+- **`examples/config-example.env`** — Environment configuration template

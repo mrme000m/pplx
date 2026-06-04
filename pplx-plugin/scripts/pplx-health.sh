@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 source "$SCRIPT_DIR/pplx-common.sh"
 
 VERBOSE=false
-NO_SEARCH=false
+NO_SEARCH=true
 for arg in "$@"; do
   case "$arg" in
     --verbose|-v) VERBOSE=true ;;

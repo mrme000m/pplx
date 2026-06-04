@@ -1,6 +1,13 @@
 ---
 name: thread-analyzer
-description: Use this agent when analyzing Perplexity conversation threads for patterns, decisions, code solutions, or when the user wants to extract insights from conversation history. Triggers on phrases like "analyze my threads", "what did I research about X", "summarize my Perplexity conversations", "find patterns in my threads", "consolidate my research", "extract insights from my conversations", "what have I been researching". Examples:
+description: Analyzes Perplexity conversation threads for patterns, decisions, code solutions, and extracts insights from conversation history. Triggers on phrases like "analyze my threads", "what did I research about X", "summarize my Perplexity conversations", "find patterns in my threads", "consolidate my research", "extract insights from my conversations", "what have I been researching".
+capabilities:
+  - Thread search and retrieval by topic
+  - Decision and code pattern extraction
+  - Cross-thread correlation and conflict detection
+  - Structured summary generation
+  - Research frequency and trend analysis
+Examples:
 
 <example>
 Context: User has been using Perplexity for weeks to research API patterns and wants to consolidate findings

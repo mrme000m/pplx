@@ -1,0 +1,1 @@
+- [plugin-dev validation workflow](feedback_plugin_dev_validation.md) — how to audit and fix a Claude Code plugin using plugin-dev tools

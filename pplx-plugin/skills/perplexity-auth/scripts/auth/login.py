@@ -36,7 +36,7 @@ class CloakBrowserLogin:
         self.cdp_port = cdp_port
         self.headless = headless
         self.ws = None
-        self.browser_pid = None
+        self._browser = None
 
     def send_cdp(self, method: str, params: dict = None) -> dict:
         msg = {"id": 1, "method": method}
@@ -46,18 +46,28 @@ class CloakBrowserLogin:
         resp = json.loads(self.ws.recv())
         return resp.get("result", {})
 
-def launch_browser(self) -> bool:
+    def launch_browser(self) -> bool:
         try:
             import cloakbrowser
-            self.browser_pid = cloakbrowser.launch(
-                port=self.cdp_port,
+            self._browser = cloakbrowser.launch(
                 headless=self.headless,
-                remote_debugging=True,
+                args=[
+                    f"--remote-debugging-port={self.cdp_port}",
+                    "--remote-allow-origins=*",
+                ],
+                stealth_args=False,
             )
-            return self.browser_pid is not None
+            return self._browser is not None
         except ImportError:
             print("ERROR: cloakbrowser not installed. Run: pip3 install cloakbrowser")
             return False
+
+    def stop_browser(self):
+        if self._browser:
+            try:
+                self._browser.close()
+            except Exception:
+                pass
 
     def navigate(self, url: str) -> bool:
         result = self.send_cdp("Page.navigate", {"url": url})

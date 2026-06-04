@@ -1,12 +1,12 @@
 ---
 name: cli-integration
-description: Use this skill when an agent needs Perplexity through shell commands, when MCP is unavailable, when working in OpenCode/Codex/non-Claude harnesses, when diagnosing pplx auth, BWS cookie loading, or dynamic model discovery, or when scripting Space uploads/thread exports. Triggers on "pplx CLI", "Perplexity from shell", "MCP is down", "OpenCode Perplexity", "Codex Perplexity", "batch upload to Space", "check Perplexity auth", "BWS cookies".
+description: This skill should be used when the user asks to "use pplx CLI", "run Perplexity from shell", "MCP is down", "OpenCode Perplexity", "Codex Perplexity", "batch upload to Space", "check Perplexity auth", "BWS cookies", or when Perplexity access is needed through shell commands, non-Claude harnesses, or BWS cookie diagnostics.
 version: 1.1.0
 ---
 
 # PPLX CLI Integration
 
-Use the `pplx` client as the universal fallback for Claude Code, OpenCode, Codex, and any harness that can run shell commands.
+Use the `pplx` client as the universal fallback for Claude Code, OpenCode, Codex, and any harness that can run shell commands. The CLI provides search, follow-up, Spaces, threads, and model discovery when MCP tools are unavailable.
 
 ## Resolution Order
 

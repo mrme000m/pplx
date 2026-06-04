@@ -1,12 +1,12 @@
 ---
 name: space-management
-description: Use this skill when creating, auditing, searching, or maintaining Perplexity Spaces; uploading project docs; building project knowledge bases; grounding dependency knowledge; managing Space files, links, or custom skills; or organizing reusable research. Triggers on "Perplexity Space", "knowledge base", "upload docs", "search in Space", "organize Space", "project docs Space".
+description: This skill should be used when the user asks to "Perplexity Space", "knowledge base", "upload docs", "search in Space", "organize Space", or "project docs Space", or when creating, auditing, searching, or maintaining Perplexity Spaces, uploading project docs, building knowledge bases, or managing Space files, links, or custom skills.
 version: 1.1.0
 ---
 
 # Space Management
 
-Use Perplexity Spaces as durable knowledge bases for projects, dependencies, and research corpora.
+Use Perplexity Spaces as durable knowledge bases for projects, dependencies, and research corpora. Spaces provide persistent, project-scoped context that survives compaction and session boundaries.
 
 ## Space Design
 

@@ -93,7 +93,7 @@ Load the plugin directory with your agent harness plugin mechanism (Claude Code,
 |---|---|
 | `/pplx-research` | Grounded web/Space research with mode guardrails |
 | `/pplx-space` | Create, audit, upload to, and search Spaces |
-| `/pplx-threads` | Search, summarize, share, and analyze threads |
+| `/pplx-threads` | Search, summarize, share, batch delete, and analyze threads |
 | `/pplx-upload` | Safely upload docs/manifests to Spaces |
 | `/pplx-settings` | Audit account/client/BWS state |
 | `/pplx-bws-setup` | Configure/verify BWS SDK cookie auth |

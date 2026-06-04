@@ -42,8 +42,8 @@ pplx_load_env_file() {
 
 PPLX_PLUGIN_DIR="${PPLX_PLUGIN_DIR:-$(pplx_plugin_dir)}"
 PPLX_REPO_DIR="${PPLX_REPO_DIR:-$(cd "$PPLX_PLUGIN_DIR/.." >/dev/null 2>&1 && pwd)}"
-PPLX_PYTHON="${PPLX_PYTHON:-python3}"
 pplx_load_env_file "$PPLX_REPO_DIR/.env"
+PPLX_PYTHON="${PPLX_PYTHON:-python3}"
 
 pplx_info() { printf '[INFO] %s\n' "$*"; }
 pplx_ok() { printf '[OK] %s\n' "$*"; }
