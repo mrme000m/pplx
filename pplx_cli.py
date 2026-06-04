@@ -1,0 +1,1112 @@
+#!/usr/bin/env python3
+"""
+PPLX CLI — Command-line interface for Perplexity AI.
+
+Loads cookies securely from Bitwarden vault. No disk files needed.
+Dynamically discovers available models from Perplexity API.
+
+Usage:
+    pplx search "What is rust?"
+    pplx search "Quantum mechanics" --mode pro --model "GPT-5.4" --thinking
+    pplx search "Research AGI" --mode deep_research
+    pplx models                    # List available models
+    pplx threads list
+    pplx spaces list
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+
+def _client():
+    from pplx import PerplexityClient
+    return PerplexityClient()
+
+
+def _extract_answer(raw):
+    """Extract readable answer from raw SSE response."""
+    if not raw or not isinstance(raw, dict):
+        return {"answer": None, "backend_uuid": None}
+
+    text_obj = raw.get("text", {})
+    if isinstance(text_obj, str):
+        try:
+            text_obj = json.loads(text_obj)
+        except json.JSONDecodeError:
+            text_obj = None
+
+    answer = None
+    if isinstance(text_obj, list):
+        # Streaming format: list of step objects
+        for step in text_obj:
+            if not isinstance(step, dict):
+                continue
+            step_type = step.get("step_type", "")
+            content = step.get("content", {})
+            if step_type == "FINAL" and isinstance(content, dict):
+                # The answer is JSON-encoded inside content.answer
+                answer_json = content.get("answer", "")
+                if isinstance(answer_json, str):
+                    try:
+                        parsed = json.loads(answer_json)
+                        if isinstance(parsed, dict):
+                            answer = parsed.get("answer")
+                    except json.JSONDecodeError:
+                        answer = answer_json
+                elif isinstance(answer_json, dict):
+                    answer = answer_json.get("answer")
+            elif step_type == "SEARCH_RESULTS" and isinstance(content, dict) and not answer:
+                results = content.get("web_results", [])
+                if results and isinstance(results, list):
+                    snippets = [r.get("snippet", "") for r in results if r.get("snippet")]
+                    if snippets:
+                        answer = "\n\n".join(snippets)
+    elif isinstance(text_obj, dict):
+        answer = text_obj.get("answer")
+
+    return {
+        "answer": answer,
+        "backend_uuid": raw.get("backend_uuid"),
+    }
+
+
+def _print_json(result):
+    """Print result as pretty JSON to stdout."""
+    json.dump(result, sys.stdout, indent=2, ensure_ascii=False)
+    print()
+
+
+def _print_search_result(result, args):
+    """Shared output logic for search and follow-up commands."""
+    data = _extract_answer(result)
+    if args.raw:
+        _print_json(result)
+    else:
+        print(data["answer"] or "(No answer)")
+        if data.get("backend_uuid") and args.verbose:
+            print(f"\n[backend_uuid: {data['backend_uuid']}]")
+
+
+def cmd_search(args):
+    client = _client()
+    result = client.search(
+        query=" ".join(args.query),
+        mode=args.mode.replace("_", " "),
+        model=args.model,
+        thinking=args.thinking,
+        sources=args.sources.split(",") if args.sources else ["web"],
+        language=args.language,
+        incognito=args.incognito,
+    )
+    _print_search_result(result, args)
+
+
+def cmd_follow_up(args):
+    client = _client()
+    result = client.search(
+        query=" ".join(args.query),
+        mode=args.mode.replace("_", " "),
+        model=args.model,
+        thinking=args.thinking,
+        follow_up={"backend_uuid": args.backend_uuid},
+        language=args.language,
+    )
+    _print_search_result(result, args)
+
+
+def cmd_models(args):
+    """List dynamically discovered models."""
+    client = _client()
+    models = client.list_models()
+    
+    if args.raw:
+        _print_json(models)
+        return
+    
+    print("Available Models\n")
+    print("=" * 50)
+    
+    for mode, model_list in models.items():
+        if not model_list:
+            continue
+        print(f"\n{mode.upper()}:")
+        print("-" * 30)
+        for m in model_list:
+            if m is None:
+                print("  Default (auto-selected)")
+            else:
+                print(f"  • {m}")
+    
+    # Show model data if available
+    if client._models_data and args.verbose:
+        print("\n" + "=" * 50)
+        print("MODEL DETAILS:")
+        print("-" * 30)
+        for key, info in client._models_data.get("models", {}).items():
+            print(f"  {key}: {info.get('label')} [{info.get('provider')}] - {info.get('description')}")
+
+
+def cmd_threads_list(args):
+    client = _client()
+    result = client.list_threads(
+        limit=args.limit,
+        offset=args.offset,
+        search_term=args.search or "",
+        ascending=args.ascending,
+    )
+    _print_json(result)
+
+
+def cmd_threads_recent(args):
+    client = _client()
+    result = client.list_recent_threads(exclude_asi=args.exclude_asi)
+    _print_json(result)
+
+
+def cmd_threads_pinned(args):
+    client = _client()
+    result = client.list_pinned_threads()
+    _print_json(result)
+
+
+def cmd_threads_get(args):
+    client = _client()
+    result = client.get_thread(args.slug)
+    _print_json(result)
+
+
+def cmd_threads_delete(args):
+    if not args.force:
+        ok = input(f"Delete thread(s) {args.context_uuids}? [y/N] ")
+        if ok.lower() not in ("y", "yes"):
+            print("Cancelled.")
+            return
+    client = _client()
+    uuids = args.context_uuids.split(",")
+    result = client.delete_threads(context_uuids=uuids)
+    _print_json(result)
+
+
+def cmd_threads_rename(args):
+    client = _client()
+    result = client.rename_thread(
+        context_uuid=args.context_uuid,
+        title=args.title,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_list(args):
+    client = _client()
+    result = client.list_spaces(limit=args.limit)
+    _print_json(result)
+
+
+def cmd_spaces_get(args):
+    client = _client()
+    result = client.get_space(args.slug)
+    _print_json(result)
+
+
+def cmd_spaces_create(args):
+    client = _client()
+    result = client.create_space(
+        title=args.title,
+        description=args.description,
+        emoji=args.emoji,
+        instructions=args.instructions,
+        access=args.access,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_delete(args):
+    if not args.force:
+        ok = input(f"Delete space {args.uuid}? [y/N] ")
+        if ok.lower() not in ("y", "yes"):
+            print("Cancelled.")
+            return
+    client = _client()
+    result = client.delete_space(args.uuid)
+    _print_json(result)
+
+
+def cmd_spaces_edit(args):
+    client = _client()
+    result = client.edit_space(
+        uuid=args.uuid,
+        title=args.title,
+        description=args.description,
+        emoji=args.emoji,
+        instructions=args.instructions,
+        access=args.access,
+        enable_web_by_default=args.enable_web,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_threads(args):
+    client = _client()
+    result = client.list_space_threads(
+        slug=args.slug,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_articles(args):
+    client = _client()
+    result = client.list_space_articles(
+        slug=args.slug,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_tasks(args):
+    client = _client()
+    result = client.get_space_tasks(args.uuid)
+    _print_json(result)
+
+
+def cmd_spaces_files(args):
+    client = _client()
+    result = client.list_space_files(
+        uuid=args.uuid,
+        search_keyword=args.search or "",
+        page_size=args.page_size,
+        cursor=args.cursor,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_upload(args):
+    client = _client()
+    content = args.file.read_bytes()
+    result = client.upload_file_to_space(
+        uuid=args.uuid,
+        filename=args.file.name,
+        file_content=content,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_delete_files(args):
+    client = _client()
+    uuids = args.file_uuids.split(",")
+    result = client.delete_space_files(args.uuid, uuids)
+    _print_json(result)
+
+
+def cmd_spaces_upload_status(args):
+    client = _client()
+    result = client.get_upload_status(args.uuid)
+    _print_json(result)
+
+
+def cmd_spaces_links(args):
+    client = _client()
+    result = client.list_space_links(slug=args.slug)
+    _print_json(result)
+
+
+def cmd_spaces_links_add(args):
+    client = _client()
+    result = client.add_space_link(uuid=args.uuid, link=args.link)
+    _print_json(result)
+
+
+def cmd_spaces_links_remove(args):
+    client = _client()
+    result = client.remove_space_link(uuid=args.uuid, link=args.link)
+    _print_json(result)
+
+
+def cmd_spaces_add_thread(args):
+    client = _client()
+    result = client.upsert_thread_collection(
+        context_uuid=args.context_uuid,
+        new_collection_uuid=args.uuid,
+        return_collection=args.return_collection,
+        return_thread=args.return_thread,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_landing(args):
+    client = _client()
+    result = client.list_spaces_v2(
+        limit=args.limit,
+        cursor=args.cursor,
+        sections=args.sections,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_pins(args):
+    client = _client()
+    result = client.list_user_pins()
+    _print_json(result)
+
+
+def cmd_discover(args):
+    client = _client()
+    result = client.get_discover_feed(limit=args.limit, category=args.category)
+    _print_json(result)
+
+
+def cmd_profile(args):
+    client = _client()
+    result = client.get_profile()
+    _print_json(result)
+
+
+def cmd_credits(args):
+    client = _client()
+    result = client.get_credits_balance()
+    _print_json(result)
+
+
+def cmd_spaces_recent(args):
+    client = _client()
+    result = client.list_recent_spaces()
+    _print_json(result)
+
+
+def cmd_spaces_skills_add(args):
+    client = _client()
+    content = args.file.read_bytes()
+    result = client.upload_skill_to_space(
+        uuid=args.uuid,
+        filename=args.file.name,
+        file_content=content,
+    )
+    _print_json(result)
+
+
+def cmd_spaces_skills_list(args):
+    client = _client()
+    result = client.list_space_skills(uuid=args.uuid, limit=args.limit)
+    _print_json(result)
+
+
+def cmd_spaces_skills_get(args):
+    client = _client()
+    result = client.get_skill(skill_id=args.skill_id)
+    _print_json(result)
+
+
+def cmd_spaces_skills_delete(args):
+    if not args.force:
+        ok = input(f"Delete skill {args.skill_id}? [y/N] ")
+        if ok.lower() not in ("y", "yes"):
+            print("Cancelled.")
+            return
+    client = _client()
+    result = client.delete_skill(skill_id=args.skill_id)
+    _print_json(result)
+
+
+def cmd_assets_list(args):
+    client = _client()
+    result = client.list_assets(limit=args.limit, collapse_versions=not args.versions)
+    _print_json(result)
+
+
+def cmd_assets_pins(args):
+    client = _client()
+    result = client.list_pinned_assets(limit=args.limit)
+    _print_json(result)
+
+
+def cmd_assets_shared(args):
+    client = _client()
+    result = client.list_shared_assets(limit=args.limit)
+    _print_json(result)
+
+
+def cmd_assets_pin(args):
+    client = _client()
+    result = client.pin_asset(asset_id=args.asset_id)
+    _print_json(result)
+
+
+def cmd_assets_unpin(args):
+    client = _client()
+    result = client.unpin_asset(asset_id=args.asset_id)
+    _print_json(result)
+
+
+def cmd_assets_delete(args):
+    if not args.force:
+        ok = input(f"Delete asset {args.asset_id}? [y/N] ")
+        if ok.lower() not in ("y", "yes"):
+            print("Cancelled.")
+            return
+    client = _client()
+    result = client.delete_asset(asset_id=args.asset_id)
+    _print_json(result)
+
+
+def cmd_assets_download(args):
+    client = _client()
+    result = client.download_asset(url=args.url, filename=args.filename)
+    _print_json(result)
+
+
+def cmd_settings(args):
+    client = _client()
+    result = client.get_user_settings()
+    _print_json(result)
+
+
+def cmd_spaces_writable(args):
+    client = _client()
+    result = client.list_writable_spaces()
+    _print_json(result)
+
+
+def cmd_sources(args):
+    client = _client()
+    result = client.list_sources()
+    _print_json(result)
+
+
+def cmd_sources_discover(args):
+    client = _client()
+    result = client.discover_sources()
+    _print_json(result)
+
+
+def cmd_billing(args):
+    client = _client()
+    result = client.get_billing_info()
+    _print_json(result)
+
+
+def cmd_tasks_list(args):
+    client = _client()
+    result = client.list_scheduled_tasks()
+    _print_json(result)
+
+
+def cmd_tasks_create(args):
+    client = _client()
+    result = client.create_scheduled_task(
+        task_name=args.name,
+        prompt=" ".join(args.prompt),
+        schedule={
+            "start_at": args.start_at,
+            "rrule": args.rrule,
+            "tzid": args.tzid,
+        },
+        sources=args.sources.split(",") if args.sources else None,
+        model_preference=args.model,
+    )
+    _print_json(result)
+
+
+def cmd_tasks_delete(args):
+    if not args.force:
+        ok = input(f"Delete task {args.task_id}? [y/N] ")
+        if ok.lower() not in ("y", "yes"):
+            print("Cancelled.")
+            return
+    client = _client()
+    result = client.delete_scheduled_task(task_id=args.task_id)
+    _print_json(result)
+
+
+def cmd_finance_alert(args):
+    client = _client()
+    result = client.create_finance_alert(
+        task_name=args.name,
+        prompt=args.prompt,
+        ticker=args.ticker,
+        event_type=args.event_type,
+        value_upper_bound=args.threshold,
+        model_preference=args.model,
+    )
+    _print_json(result)
+
+
+def cmd_finance_quote(args):
+    client = _client()
+    result = client.get_finance_quote(symbol=args.symbol)
+    _print_json(result)
+
+
+def cmd_spaces_search(args):
+    client = _client()
+    result = client.search_in_space(
+        uuid=args.uuid,
+        query=" ".join(args.query),
+        mode=args.mode.replace("_", " "),
+        model=args.model,
+    )
+    data = _extract_answer(result)
+    if args.raw:
+        _print_json(result)
+    else:
+        print(data["answer"] or "(No answer)")
+        if data.get("backend_uuid") and args.verbose:
+            print(f"\n[backend_uuid: {data['backend_uuid']}]")
+
+
+def cmd_memories_list(args):
+    client = _client()
+    result = client.list_memories(query=args.search or "", limit=args.limit, offset=args.offset)
+    _print_json(result)
+
+
+def cmd_memories_get(args):
+    client = _client()
+    result = client.get_memory(memory_key=args.key)
+    if result:
+        _print_json(result)
+    else:
+        print("Memory not found.")
+
+
+def cmd_memories_delete(args):
+    if not args.force:
+        ok = input(f"Delete memory '{args.key}'? [y/N] ")
+        if ok.lower() not in ("y", "yes"):
+            print("Cancelled.")
+            return
+    client = _client()
+    result = client.delete_memory(memory_key=args.key)
+    _print_json(result)
+
+
+def cmd_tasks(args):
+    client = _client()
+    result = client.list_computer_tasks(limit=args.limit, offset=args.offset)
+    _print_json(result)
+
+
+def cmd_workflows(args):
+    client = _client()
+    result = client.list_workflows()
+    _print_json(result)
+
+
+def cmd_threads_share(args):
+    client = _client()
+    result = client.share_thread(slug=args.slug)
+    _print_json(result)
+
+
+def cmd_rate_limits(args):
+    client = _client()
+    result = client.get_rate_limit_status()
+    if args.raw:
+        _print_json(result)
+    else:
+        for key, info in result.items():
+            if not isinstance(info, dict):
+                continue
+            remaining = info.get("remaining", "?")
+            limit = info.get("limit", "?")
+            reset_at = info.get("reset_time", "?")
+            print(f"  {key}: {remaining}/{limit} (resets {reset_at})")
+
+
+def cmd_notifications(args):
+    client = _client()
+    result = client.get_notification_count()
+    if args.raw:
+        _print_json(result)
+    else:
+        print(f"Unread notifications: {result.get('count', result)}")
+
+
+def cmd_ai_profile(args):
+    client = _client()
+    result = client.get_ai_profile()
+    if args.raw:
+        _print_json(result)
+    else:
+        profile = result.get("profile", result)
+        for key, val in profile.items():
+            print(f"  {key}: {val}")
+
+
+def cmd_status(args):
+    client = _client()
+    results = {}
+    sections = args.sections.split(",") if args.sections else ["all"]
+
+    if "all" in sections or "user" in sections:
+        results["user_info"] = client.get_user_info()
+    if "all" in sections or "rate" in sections:
+        results["rate_limits"] = client.get_rate_limit_status()
+    if "all" in sections or "asi" in sections:
+        results["asi_access"] = client.get_asi_access()
+    if "all" in sections or "notif" in sections:
+        results["notifications"] = client.get_notification_count()
+
+    if args.raw:
+        _print_json(results)
+    else:
+        if "user_info" in results:
+            u = results["user_info"]
+            print("User Info:")
+            print(f"  Enterprise: {u.get('is_enterprise')}, Student: {u.get('is_student')}")
+            print(f"  Home host: {u.get('home_host', '?')}")
+        if "rate_limits" in results:
+            print("\nRate Limits:")
+            for key, info in results["rate_limits"].items():
+                if isinstance(info, dict):
+                    print(f"  {key}: {info.get('remaining', '?')}/{info.get('limit', '?')}")
+        if "asi_access" in results:
+            a = results["asi_access"]
+            print(f"\nASI Access: {a.get('has_access', a)}")
+        if "notifications" in results:
+            n = results["notifications"]
+            print(f"\nUnread notifications: {n.get('count', n)}")
+
+
+def cmd_spaces_pinned_threads(args):
+    client = _client()
+    result = client.get_space_pinned_threads(space_id=args.uuid, include_assets=not args.no_assets)
+    _print_json(result)
+
+
+def cmd_spaces_memory_config(args):
+    client = _client()
+    result = client.get_space_memory_config(space_id=args.uuid)
+    _print_json(result)
+
+
+def cmd_tasks_recurring(args):
+    client = _client()
+    result = client.list_recurring_tasks()
+    _print_json(result)
+
+
+def build_parser():
+    from pplx import __version__
+
+    p = argparse.ArgumentParser(
+        prog="pplx",
+        description="PPLX — Perplexity AI CLI (Bitwarden-backed, dynamic models)",
+    )
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    sub = p.add_subparsers(dest="command")
+
+    # Shared search arguments
+    search_parent = argparse.ArgumentParser(add_help=False)
+    search_parent.add_argument(
+        "--mode", default="auto",
+        choices=["auto", "pro", "reasoning", "deep_research"],
+        help="Search mode (default: auto)",
+    )
+    search_parent.add_argument(
+        "--model", default=None,
+        help="Model name (use 'pplx models' to see options)",
+    )
+    search_parent.add_argument(
+        "--thinking", action="store_true",
+        help="Enable thinking mode (uses reasoning variant of selected model)",
+    )
+    search_parent.add_argument("--language", default="en-US")
+    search_parent.add_argument("--raw", action="store_true", help="Output full raw JSON")
+    search_parent.add_argument("-v", "--verbose", action="store_true")
+
+    # search
+    s = sub.add_parser("search", parents=[search_parent], help="Search the web")
+    s.add_argument("query", nargs="+", help="Search query")
+    s.add_argument("--sources", default="web", help="Sources: web,scholar,social")
+    s.add_argument("--incognito", action="store_true")
+    s.set_defaults(func=cmd_search)
+
+    # follow-up
+    f = sub.add_parser("follow-up", parents=[search_parent], help="Continue a conversation")
+    f.add_argument("query", nargs="+")
+    f.add_argument("backend_uuid", help="Thread UUID from previous search")
+    f.set_defaults(func=cmd_follow_up)
+
+    # models
+    m = sub.add_parser("models", help="List available models (dynamically fetched)")
+    m.add_argument("--raw", action="store_true", help="Output raw model data")
+    m.add_argument("-v", "--verbose", action="store_true", help="Show full model details")
+    m.set_defaults(func=cmd_models)
+
+    # threads
+    thr = sub.add_parser("threads", help="Manage conversation threads / history")
+    thr_sub = thr.add_subparsers(dest="subcommand")
+    
+    thr_list = thr_sub.add_parser("list", help="List threads from history")
+    thr_list.add_argument("-l", "--limit", type=int, default=20)
+    thr_list.add_argument("-o", "--offset", type=int, default=0)
+    thr_list.add_argument("-s", "--search", default="", help="Search term filter")
+    thr_list.add_argument("--ascending", action="store_true", help="Oldest first")
+    thr_list.set_defaults(func=cmd_threads_list)
+    
+    thr_recent = thr_sub.add_parser("recent", help="List recent threads")
+    thr_recent.add_argument("--exclude-asi", action="store_true", help="Exclude ASI threads")
+    thr_recent.set_defaults(func=cmd_threads_recent)
+    
+    thr_pinned = thr_sub.add_parser("pinned", help="List pinned threads")
+    thr_pinned.set_defaults(func=cmd_threads_pinned)
+    
+    thr_get = thr_sub.add_parser("get", help="Get thread details by slug")
+    thr_get.add_argument("slug")
+    thr_get.set_defaults(func=cmd_threads_get)
+    
+    thr_delete = thr_sub.add_parser("delete", help="Delete thread(s) from history")
+    thr_delete.add_argument("context_uuids", help="Comma-separated context_uuids")
+    thr_delete.add_argument("--force", action="store_true", help="Skip confirmation")
+    thr_delete.set_defaults(func=cmd_threads_delete)
+    
+    thr_rename = thr_sub.add_parser("rename", help="Rename a thread")
+    thr_rename.add_argument("context_uuid", help="Thread context_uuid")
+    thr_rename.add_argument("title", help="New title")
+    thr_rename.set_defaults(func=cmd_threads_rename)
+
+    thr_share = thr_sub.add_parser("share", help="Get share link for a thread")
+    thr_share.add_argument("slug", help="Thread slug")
+    thr_share.set_defaults(func=cmd_threads_share)
+
+    # spaces
+    sp = sub.add_parser("spaces", help="Manage spaces")
+    sp_sub = sp.add_subparsers(dest="subcommand")
+
+    sp_list = sp_sub.add_parser("list", help="List spaces (legacy)")
+    sp_list.add_argument("-l", "--limit", type=int, default=30)
+    sp_list.set_defaults(func=cmd_spaces_list)
+
+    sp_landing = sp_sub.add_parser("landing", help="List spaces v2 (sectioned)")
+    sp_landing.add_argument("-l", "--limit", type=int, default=30)
+    sp_landing.add_argument("--cursor", default=None)
+    sp_landing.add_argument("--sections", default=None)
+    sp_landing.set_defaults(func=cmd_spaces_landing)
+
+    sp_pins = sp_sub.add_parser("pins", help="List pinned spaces")
+    sp_pins.set_defaults(func=cmd_spaces_pins)
+
+    sp_recent = sp_sub.add_parser("recent", help="List recently accessed spaces")
+    sp_recent.set_defaults(func=cmd_spaces_recent)
+
+    sp_writable = sp_sub.add_parser("writable", help="List spaces you can write to")
+    sp_writable.set_defaults(func=cmd_spaces_writable)
+
+    sp_pinned_thr = sp_sub.add_parser("pinned-threads", help="List pinned threads in a space")
+    sp_pinned_thr.add_argument("uuid", help="Space UUID")
+    sp_pinned_thr.add_argument("--no-assets", action="store_true", help="Exclude asset info")
+    sp_pinned_thr.set_defaults(func=cmd_spaces_pinned_threads)
+
+    sp_mem_cfg = sp_sub.add_parser("memory-config", help="Get memory config for a space")
+    sp_mem_cfg.add_argument("uuid", help="Space UUID")
+    sp_mem_cfg.set_defaults(func=cmd_spaces_memory_config)
+
+    sp_get = sp_sub.add_parser("get", help="Get space by slug")
+    sp_get.add_argument("slug")
+    sp_get.set_defaults(func=cmd_spaces_get)
+
+    sp_create = sp_sub.add_parser("create", help="Create a space")
+    sp_create.add_argument("--title", required=True)
+    sp_create.add_argument("--description", default="")
+    sp_create.add_argument("--emoji", default="1f4c1")
+    sp_create.add_argument("--instructions", default="")
+    sp_create.add_argument("--access", type=int, default=1, choices=[1, 2])
+    sp_create.set_defaults(func=cmd_spaces_create)
+
+    sp_edit = sp_sub.add_parser("edit", help="Edit a space")
+    sp_edit.add_argument("uuid")
+    sp_edit.add_argument("--title", required=True)
+    sp_edit.add_argument("--description", default="")
+    sp_edit.add_argument("--emoji", default="1f4c1")
+    sp_edit.add_argument("--instructions", default="")
+    sp_edit.add_argument("--access", type=int, default=1, choices=[1, 2])
+    sp_edit.add_argument("--enable-web", action="store_true", default=True)
+    sp_edit.set_defaults(func=cmd_spaces_edit)
+
+    sp_del = sp_sub.add_parser("delete", help="Delete a space")
+    sp_del.add_argument("uuid")
+    sp_del.add_argument("--force", action="store_true")
+    sp_del.set_defaults(func=cmd_spaces_delete)
+
+    sp_threads = sp_sub.add_parser("threads", help="List threads in a space")
+    sp_threads.add_argument("slug")
+    sp_threads.add_argument("-l", "--limit", type=int, default=20)
+    sp_threads.add_argument("-o", "--offset", type=int, default=0)
+    sp_threads.set_defaults(func=cmd_spaces_threads)
+
+    sp_articles = sp_sub.add_parser("articles", help="List articles in a space")
+    sp_articles.add_argument("slug")
+    sp_articles.add_argument("-l", "--limit", type=int, default=20)
+    sp_articles.add_argument("-o", "--offset", type=int, default=0)
+    sp_articles.set_defaults(func=cmd_spaces_articles)
+
+    sp_tasks = sp_sub.add_parser("tasks", help="Get tasks in a space")
+    sp_tasks.add_argument("uuid")
+    sp_tasks.set_defaults(func=cmd_spaces_tasks)
+
+    sp_files = sp_sub.add_parser("files", help="List files in a space")
+    sp_files.add_argument("uuid")
+    sp_files.add_argument("-s", "--search", default="")
+    sp_files.add_argument("--page-size", type=int, default=20)
+    sp_files.add_argument("--cursor", default=None)
+    sp_files.set_defaults(func=cmd_spaces_files)
+
+    sp_upload = sp_sub.add_parser("upload", help="Upload a file to a space")
+    sp_upload.add_argument("uuid")
+    sp_upload.add_argument("file", type=Path)
+    sp_upload.set_defaults(func=cmd_spaces_upload)
+
+    sp_del_files = sp_sub.add_parser("delete-files", help="Delete files from a space")
+    sp_del_files.add_argument("uuid")
+    sp_del_files.add_argument("file_uuids", help="Comma-separated file UUIDs")
+    sp_del_files.set_defaults(func=cmd_spaces_delete_files)
+
+    sp_up_status = sp_sub.add_parser("upload-status", help="Get upload status for a space")
+    sp_up_status.add_argument("uuid")
+    sp_up_status.set_defaults(func=cmd_spaces_upload_status)
+
+    sp_add_thr = sp_sub.add_parser("add-thread", help="Add a thread to a space")
+    sp_add_thr.add_argument("uuid", help="Space collection UUID")
+    sp_add_thr.add_argument("context_uuid", help="Thread context UUID")
+    sp_add_thr.add_argument("--return-collection", action="store_true")
+    sp_add_thr.add_argument("--return-thread", action="store_true")
+    sp_add_thr.set_defaults(func=cmd_spaces_add_thread)
+
+    sp_search = sp_sub.add_parser("search", parents=[search_parent], help="Search within a space")
+    sp_search.add_argument("uuid", help="Space collection UUID")
+    sp_search.add_argument("query", nargs="+", help="Search query")
+    sp_search.set_defaults(func=cmd_spaces_search)
+
+    sp_links = sp_sub.add_parser("links", help="Manage focused web links for a space")
+    sp_links_sub = sp_links.add_subparsers(dest="subcommand")
+
+    sp_links_list = sp_links_sub.add_parser("list", help="List focused web links")
+    sp_links_list.add_argument("slug", help="Space slug")
+    sp_links_list.set_defaults(func=cmd_spaces_links)
+
+    sp_links_add = sp_links_sub.add_parser("add", help="Add a focused web link")
+    sp_links_add.add_argument("uuid", help="Space collection UUID")
+    sp_links_add.add_argument("link", help="Domain to focus (e.g. docs.python.org)")
+    sp_links_add.set_defaults(func=cmd_spaces_links_add)
+
+    sp_links_rm = sp_links_sub.add_parser("remove", help="Remove a focused web link")
+    sp_links_rm.add_argument("uuid", help="Space collection UUID")
+    sp_links_rm.add_argument("link", help="Domain to remove")
+    sp_links_rm.set_defaults(func=cmd_spaces_links_remove)
+
+    sp_skills = sp_sub.add_parser("skills", help="Manage custom skills for a space")
+    sp_skills_sub = sp_skills.add_subparsers(dest="subcommand")
+
+    sp_skills_list = sp_skills_sub.add_parser("list", help="List skills in a space")
+    sp_skills_list.add_argument("uuid", help="Space collection UUID")
+    sp_skills_list.add_argument("-l", "--limit", type=int, default=20)
+    sp_skills_list.set_defaults(func=cmd_spaces_skills_list)
+
+    sp_skills_add = sp_skills_sub.add_parser("add", help="Upload a skill to a space")
+    sp_skills_add.add_argument("uuid", help="Space collection UUID")
+    sp_skills_add.add_argument("file", type=Path, help="Skill markdown file")
+    sp_skills_add.set_defaults(func=cmd_spaces_skills_add)
+
+    sp_skills_get = sp_skills_sub.add_parser("get", help="Get a skill by ID")
+    sp_skills_get.add_argument("skill_id", help="Skill UUID")
+    sp_skills_get.set_defaults(func=cmd_spaces_skills_get)
+
+    sp_skills_del = sp_skills_sub.add_parser("delete", help="Delete a skill")
+    sp_skills_del.add_argument("skill_id", help="Skill UUID")
+    sp_skills_del.add_argument("--force", action="store_true", help="Skip confirmation")
+    sp_skills_del.set_defaults(func=cmd_spaces_skills_delete)
+
+    # assets
+    ast = sub.add_parser("assets", help="Manage generated assets (reports, images, code)")
+    ast_sub = ast.add_subparsers(dest="subcommand")
+
+    ast_list = ast_sub.add_parser("list", help="List all assets")
+    ast_list.add_argument("-l", "--limit", type=int, default=40)
+    ast_list.add_argument("--versions", action="store_true", help="Show all versions")
+    ast_list.set_defaults(func=cmd_assets_list)
+
+    ast_pins = ast_sub.add_parser("pins", help="List pinned assets")
+    ast_pins.add_argument("-l", "--limit", type=int, default=50)
+    ast_pins.set_defaults(func=cmd_assets_pins)
+
+    ast_shared = ast_sub.add_parser("shared", help="List assets shared with you")
+    ast_shared.add_argument("-l", "--limit", type=int, default=40)
+    ast_shared.set_defaults(func=cmd_assets_shared)
+
+    ast_pin = ast_sub.add_parser("pin", help="Pin an asset")
+    ast_pin.add_argument("asset_id", help="Asset UUID")
+    ast_pin.set_defaults(func=cmd_assets_pin)
+
+    ast_unpin = ast_sub.add_parser("unpin", help="Unpin an asset")
+    ast_unpin.add_argument("asset_id", help="Asset UUID")
+    ast_unpin.set_defaults(func=cmd_assets_unpin)
+
+    ast_del = ast_sub.add_parser("delete", help="Delete an asset permanently")
+    ast_del.add_argument("asset_id", help="Asset UUID")
+    ast_del.add_argument("--force", action="store_true", help="Skip confirmation")
+    ast_del.set_defaults(func=cmd_assets_delete)
+
+    ast_dl = ast_sub.add_parser("download", help="Get download URL for an asset")
+    ast_dl.add_argument("url", help="Asset location URL")
+    ast_dl.add_argument("filename", help="Desired filename")
+    ast_dl.set_defaults(func=cmd_assets_download)
+
+    # sources
+    src = sub.add_parser("sources", help="Manage data source connectors")
+    src_sub = src.add_subparsers(dest="subcommand")
+
+    src_list = src_sub.add_parser("list", help="List connected sources")
+    src_list.set_defaults(func=cmd_sources)
+
+    src_disc = src_sub.add_parser("discover", help="Discover available source connectors")
+    src_disc.set_defaults(func=cmd_sources_discover)
+
+    # tasks / alerts
+    tsk = sub.add_parser("tasks", help="Manage scheduled tasks and alerts")
+    tsk_sub = tsk.add_subparsers(dest="subcommand")
+
+    tsk_list = tsk_sub.add_parser("list", help="List scheduled tasks")
+    tsk_list.set_defaults(func=cmd_tasks_list)
+
+    tsk_create = tsk_sub.add_parser("create", help="Create a scheduled task")
+    tsk_create.add_argument("name", help="Task name")
+    tsk_create.add_argument("prompt", nargs="+", help="Task prompt/query")
+    tsk_create.add_argument("--start-at", required=True, help="Start datetime (ISO 8601)")
+    tsk_create.add_argument("--rrule", required=True, help="Recurrence rule (e.g. FREQ=DAILY;BYHOUR=10;BYMINUTE=0)")
+    tsk_create.add_argument("--tzid", default="UTC", help="Timezone (default: UTC)")
+    tsk_create.add_argument("--sources", default="web", help="Comma-separated sources")
+    tsk_create.add_argument("--model", default="pplx_pro", help="Model preference")
+    tsk_create.set_defaults(func=cmd_tasks_create)
+
+    tsk_del = tsk_sub.add_parser("delete", help="Delete a scheduled task")
+    tsk_del.add_argument("task_id", help="Task ID")
+    tsk_del.add_argument("--force", action="store_true", help="Skip confirmation")
+    tsk_del.set_defaults(func=cmd_tasks_delete)
+
+    tsk_recurring = tsk_sub.add_parser("recurring", help="List recurring tasks")
+    tsk_recurring.set_defaults(func=cmd_tasks_recurring)
+
+    # finance
+    fin = sub.add_parser("finance", help="Finance quotes and alerts")
+    fin_sub = fin.add_subparsers(dest="subcommand")
+
+    fin_quote = fin_sub.add_parser("quote", help="Get quote for a ticker")
+    fin_quote.add_argument("symbol", help="Ticker symbol (e.g. XAUUSD, AAPL)")
+    fin_quote.set_defaults(func=cmd_finance_quote)
+
+    fin_alert = fin_sub.add_parser("alert", help="Create a price alert")
+    fin_alert.add_argument("name", help="Alert name")
+    fin_alert.add_argument("ticker", help="Ticker symbol")
+    fin_alert.add_argument("threshold", type=float, help="Price threshold")
+    fin_alert.add_argument("--prompt", default="", help="Custom notification message")
+    fin_alert.add_argument("--event-type", default="STOCK_PRICE_TARGET", help="Event type")
+    fin_alert.add_argument("--model", default="turbo", help="Model preference")
+    fin_alert.set_defaults(func=cmd_finance_alert)
+
+    # billing
+    bill = sub.add_parser("billing", help="Show subscription billing info")
+    bill.set_defaults(func=cmd_billing)
+
+    # discover
+    d = sub.add_parser("discover", help="Browse discover feed")
+    d.add_argument("--category")
+    d.add_argument("-l", "--limit", type=int, default=10)
+    d.set_defaults(func=cmd_discover)
+
+    # profile
+    pr = sub.add_parser("profile", help="Show user profile")
+    pr.set_defaults(func=cmd_profile)
+
+    # rate-limits
+    rl = sub.add_parser("rate-limits", help="Show rate-limit status")
+    rl.add_argument("--raw", action="store_true", help="Output raw JSON")
+    rl.set_defaults(func=cmd_rate_limits)
+
+    # notifications
+    nf = sub.add_parser("notifications", help="Show unread notification count")
+    nf.add_argument("--raw", action="store_true", help="Output raw JSON")
+    nf.set_defaults(func=cmd_notifications)
+
+    # ai-profile
+    ap = sub.add_parser("ai-profile", help="Show AI profile settings")
+    ap.add_argument("--raw", action="store_true", help="Output raw JSON")
+    ap.set_defaults(func=cmd_ai_profile)
+
+    # status (consolidated)
+    sts = sub.add_parser("status", help="Show consolidated account status")
+    sts.add_argument("--raw", action="store_true", help="Output raw JSON")
+    sts.add_argument("--sections", default="all", help="Comma-separated: all,user,rate,asi,notif")
+    sts.set_defaults(func=cmd_status)
+
+    # credits
+    cr = sub.add_parser("credits", help="Show credits balance and billing info")
+    cr.set_defaults(func=cmd_credits)
+
+    # settings
+    st = sub.add_parser("settings", help="Show user account settings and limits")
+    st.set_defaults(func=cmd_settings)
+
+    # memories
+    mem = sub.add_parser("memories", help="Manage Perplexity memories")
+    mem_sub = mem.add_subparsers(dest="subcommand")
+
+    mem_list = mem_sub.add_parser("list", help="List memories")
+    mem_list.add_argument("-l", "--limit", type=int, default=20)
+    mem_list.add_argument("-o", "--offset", type=int, default=0)
+    mem_list.add_argument("-s", "--search", default="", help="Search filter")
+    mem_list.set_defaults(func=cmd_memories_list)
+
+    mem_get = mem_sub.add_parser("get", help="Get a specific memory")
+    mem_get.add_argument("key", help="Memory key")
+    mem_get.set_defaults(func=cmd_memories_get)
+
+    mem_del = mem_sub.add_parser("delete", help="Delete a memory")
+    mem_del.add_argument("key", help="Memory key to delete")
+    mem_del.add_argument("--force", action="store_true", help="Skip confirmation")
+    mem_del.set_defaults(func=cmd_memories_delete)
+
+    # computer / ASI tasks
+    asi_tsk = sub.add_parser("computer-tasks", help="List computer/ASI tasks")
+    asi_tsk.add_argument("-l", "--limit", type=int, default=20)
+    asi_tsk.add_argument("-o", "--offset", type=int, default=0)
+    asi_tsk.set_defaults(func=cmd_tasks)
+
+    # workflows
+    wf = sub.add_parser("workflows", help="List available workflows")
+    wf.set_defaults(func=cmd_workflows)
+
+    return p
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    if not hasattr(args, "func"):
+        parser.print_help()
+        sys.exit(1)
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except RuntimeError as e:
+        msg = str(e)
+        if "cookies" in msg.lower() or "auth" in msg.lower() or "BWS" in msg:
+            print(f"Auth Error: {msg}", file=sys.stderr)
+            print("\nTo fix:", file=sys.stderr)
+            print("  1. Set PERPLEXITY_COOKIES_PATH=/path/to/cookies.json", file=sys.stderr)
+            print("  2. Or configure BWS: export BWS_ACCESS_TOKEN=...", file=sys.stderr)
+            print("  3. Or run: python scripts/setup_bws_secret.py setup-cookies /path/to/cookies.json", file=sys.stderr)
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

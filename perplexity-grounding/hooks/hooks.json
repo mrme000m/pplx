@@ -1,0 +1,22 @@
+{
+  "hooks": [
+    {
+      "name": "perplexity-mode-guard",
+      "hook": "PreToolUse",
+      "tool": "mcp__perplexity__search",
+      "prompt": "Before executing a Perplexity search, verify the mode selection is appropriate:\n\n1. If mode is 'pro', 'reasoning', or 'deep_research' and the user did NOT explicitly request that mode, downgrade to 'auto' with a brief note: 'Using auto mode (free) — escalate if needed.'\n2. If answer_only is not set to true, set it to true to minimize token usage.\n3. If the query is vague (no library version, no specific API), enhance it with context from the current project (check nearby imports, package.json, etc.) before searching.\n4. If this is a simple factual query that could be answered from the agent's training data with high confidence, suggest: 'This may not need a live search. Consider whether the answer is stable enough to answer directly.'\n\nDo NOT block the search — only provide guidance. Let the agent decide."
+    },
+    {
+      "name": "post-edit-freshness-nudge",
+      "hook": "PostToolUse",
+      "tool": "Write|Edit",
+      "prompt": "After editing a file, check if the edit involves external dependency APIs that may be version-sensitive. Look for:\n\n1. Import statements from external packages (npm, pip, crates, etc.)\n2. API calls to external libraries (React hooks, Next.js APIs, Tailwind directives, etc.)\n3. Configuration for external tools (next.config, tailwind.config, tsconfig paths, etc.)\n\nIf version-sensitive patterns are detected:\n- Suggest running `/p-verify-docs [library-name]` to confirm the pattern is current\n- Do NOT force verification — just suggest it as an optional safety step\n- Be specific: mention the exact API and library name, not generic advice\n\nIf no external dependencies are involved, do nothing."
+    },
+    {
+      "name": "dependency-change-alert",
+      "hook": "PostToolUse",
+      "tool": "Write|Edit",
+      "prompt": "After editing package.json, requirements.txt, pyproject.toml, go.mod, Cargo.toml, or any dependency manifest file:\n\n1. Identify what dependencies were added or changed\n2. For each NEW dependency, suggest verifying its current API with: `/p-verify-docs [package-name]`\n3. For UPGRADED dependencies (version changed), suggest checking for breaking changes with: `/p-ground [package-name] [new-version] breaking changes`\n4. If a Space exists for this project, suggest uploading the updated manifest to keep knowledge current\n\nDo NOT block — provide these as optional suggestions. Keep output to 1-2 lines per dependency."
+    }
+  ]
+}

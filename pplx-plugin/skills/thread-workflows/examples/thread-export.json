@@ -1,0 +1,27 @@
+{
+  "thread": {
+    "title": "API Authentication Patterns",
+    "mode": "pro",
+    "created_at": "2026-06-01",
+    "messages_count": 8
+  },
+  "summary": {
+    "topic": "Authentication patterns for REST APIs",
+    "key_decisions": [
+      "JWT tokens should be short-lived (15min) with refresh tokens",
+      "OAuth2 PKCE flow recommended for SPA applications",
+      "API keys should be rotated every 90 days"
+    ],
+    "code_patterns": [
+      {
+        "language": "typescript",
+        "description": "JWT middleware with token refresh",
+        "snippet": "async function verifyToken(req, res, next) { ... }"
+      }
+    ],
+    "sources": [
+      "https://auth0.com/docs/secure/tokens/refresh-tokens",
+      "https://oauth.net/2/pkce/"
+    ]
+  }
+}

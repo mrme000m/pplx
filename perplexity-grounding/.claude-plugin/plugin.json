@@ -1,0 +1,18 @@
+{
+  "name": "perplexity-grounding",
+  "version": "1.0.0",
+  "description": "Grounds agent responses with live Perplexity search — prevents hallucination on version-sensitive APIs, detects stale documentation, and provides token-efficient research workflows. Requires an active Perplexity MCP server.",
+  "author": {
+    "name": "mrme000m"
+  },
+  "license": "MIT",
+  "keywords": [
+    "perplexity",
+    "grounding",
+    "hallucination-prevention",
+    "web-search",
+    "doc-verification",
+    "freshness",
+    "research"
+  ]
+}
