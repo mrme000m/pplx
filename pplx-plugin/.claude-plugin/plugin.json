@@ -1,7 +1,7 @@
 {
   "name": "pplx-plugin",
-  "version": "1.1.0",
-  "description": "Marketplace-ready Perplexity AI toolkit for Claude Code, OpenCode, Codex, and shell-native agents. Provides research commands, Space and thread workflows, dependency grounding, Bitwarden-backed CLI fallback, portable helper scripts, proactive hooks, and focused subagents.",
+  "version": "1.2.0",
+  "description": "Marketplace-ready Perplexity AI toolkit for Claude Code, OpenCode, Codex, and shell-native agents. Provides research commands, Space and thread workflows, dependency grounding, Bitwarden-backed CLI fallback, portable helper scripts, proactive hooks with Pro mode auto-escalation, knowledge persistence, asset management, advanced research orchestration, and focused subagents.",
   "author": {
     "name": "mrme000m"
   },
@@ -25,6 +25,11 @@
     "opencode",
     "codex",
     "hooks",
-    "workflow-automation"
+    "workflow-automation",
+    "pro-mode",
+    "deep-research",
+    "knowledge-persistence",
+    "asset-management",
+    "research-orchestration"
   ]
 }

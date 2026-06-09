@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # pplx-setup.sh — configure pplx-plugin for Claude Code, OpenCode, Codex, and shell agents
-# Usage: bash pplx-setup.sh [--install-client] [--print-env]
+# Usage: bash pplx-setup.sh [--install-client] [--install-plugin [claude|opencode|codex|all]] [--print-env]
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
@@ -8,10 +8,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 source "$SCRIPT_DIR/pplx-common.sh"
 
 INSTALL_CLIENT=false
+INSTALL_PLUGIN=false
+PLUGIN_TARGET="all"
 PRINT_ENV=false
 for arg in "$@"; do
   case "$arg" in
     --install-client) INSTALL_CLIENT=true ;;
+    --install-plugin)
+      INSTALL_PLUGIN=true
+      # Check if next arg is a harness name
+      if [[ "${2:-}" =~ ^(claude|opencode|codex|all)$ ]]; then
+        PLUGIN_TARGET="$2"
+      fi
+      ;;
     --print-env) PRINT_ENV=true ;;
     --help|-h)
       awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
@@ -80,9 +89,24 @@ else
   pplx_warn "pplx executable not found in PATH; scripts will use python fallback when possible."
 fi
 
+# Install plugin for agent harnesses if requested
+if [ "$INSTALL_PLUGIN" = true ]; then
+  printf '\n========================================\n'
+  printf '  Installing Plugin for Agent Harnesses\n'
+  printf '========================================\n\n'
+
+  local_install_plugin="$PPLX_REPO_DIR/install/install-plugin.sh"
+  if [ -f "$local_install_plugin" ]; then
+    bash "$local_install_plugin" "$PPLX_PLUGIN_DIR" "$PLUGIN_TARGET"
+  else
+    pplx_warn "Plugin installer not found at $local_install_plugin"
+    pplx_warn "Clone the full repository for plugin installation support."
+  fi
+fi
+
 printf '\nRecommended harness configuration:\n'
 printf '  Claude Code: claude --plugin-dir "%s"\n' "$PPLX_PLUGIN_DIR"
-printf '  OpenCode: add "%s" to skills.paths in opencode.json; commands from commands/ are loaded as slash commands\n' "$PPLX_PLUGIN_DIR"
+printf '  OpenCode: add "%s" to skills.paths in opencode.json\n' "$PPLX_PLUGIN_DIR"
 printf '  Codex: add "%s/scripts" to trusted helper script paths\n' "$PPLX_PLUGIN_DIR"
 printf '  Env override: export PPLX_REPO_DIR="%s"\n' "$PPLX_REPO_DIR"
 
@@ -95,4 +119,6 @@ if [ "$PRINT_ENV" = true ]; then
   printf '# export PERPLEXITY_COOKIES_PATH=/path/to/cookies.json\n'
 fi
 
-printf '\nRun diagnostics with:\n  bash "%s/pplx-health.sh" --verbose --no-search\n' "$SCRIPT_DIR"
+printf '\nRun diagnostics with:\n'
+printf '  bash "%s/pplx-health.sh" --verbose --no-search\n' "$SCRIPT_DIR"
+printf '  bash "%s/pplx-pro-check.sh" --verbose\n' "$SCRIPT_DIR"

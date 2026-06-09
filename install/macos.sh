@@ -1,14 +1,39 @@
 #!/usr/bin/env bash
-# install-macos.sh — Install PPLX CLI + Plugin on macOS
-# Usage: bash install/macos.sh [--dev-dir /path/to/install]
+# install-macos.sh — Install PPLX CLI + Plugin on macOS with agent harness setup
+# Usage: bash install/macos.sh [--dev-dir /path/to/install] [--skip-plugin] [--plugin-for claude|opencode|codex|all]
 
 set -euo pipefail
 
 REPO_URL="https://github.com/mrme000m/pplx.git"
-DEV_DIR="${1:-$HOME/dev}"
+DEV_DIR="${HOME}/dev"
+SKIP_PLUGIN=false
+PLUGIN_FOR="all"
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dev-dir)
+            DEV_DIR="$2"
+            shift 2
+            ;;
+        --skip-plugin)
+            SKIP_PLUGIN=true
+            shift
+            ;;
+        --plugin-for)
+            PLUGIN_FOR="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
 INSTALL_DIR="$DEV_DIR/pplx"
 VENV_DIR="$INSTALL_DIR/.venv"
 PYTHON="${PYTHON:-python3}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 check_prereqs() {
     echo "Checking prerequisites..."
@@ -83,6 +108,30 @@ verify_install() {
     echo ""
     echo "Running health check (no live search)..."
     PPLX_PYTHON="$VENV_DIR/bin/python" bash "$INSTALL_DIR/pplx-plugin/scripts/pplx-health.sh" --no-search 2>/dev/null || true
+
+    echo ""
+    echo "Running Pro feature check..."
+    bash "$INSTALL_DIR/pplx-plugin/scripts/pplx-pro-check.sh" --verbose 2>/dev/null || true
+}
+
+install_plugin() {
+    if [ "$SKIP_PLUGIN" = true ]; then
+        echo "Skipping plugin installation (--skip-plugin)"
+        return 0
+    fi
+
+    echo ""
+    echo "========================================"
+    echo "  Installing Plugin for Agent Harnesses"
+    echo "========================================"
+    echo ""
+
+    if [ -f "$SCRIPT_DIR/install-plugin.sh" ]; then
+        bash "$SCRIPT_DIR/install-plugin.sh" "$INSTALL_DIR/pplx-plugin" "$PLUGIN_FOR"
+    else
+        echo "Plugin installer not found at $SCRIPT_DIR/install-plugin.sh"
+        echo "You can manually link the plugin directory to your agent harness."
+    fi
 }
 
 print_next_steps() {
@@ -92,10 +141,12 @@ print_next_steps() {
   PPLX Installation Complete!
 ========================================
 
-Next steps:
+Installation directory: $INSTALL_DIR
+Virtual environment:    $VENV_DIR
+Plugin directory:       $INSTALL_DIR/pplx-plugin
 
 1. Activate the virtual environment:
-   source $INSTALL_DIR/.venv/bin/activate
+   source $VENV_DIR/bin/activate
 
 2. Set up Bitwarden authentication:
    - Ensure 'bw' CLI is installed: brew install bitwarden-cli
@@ -108,12 +159,26 @@ Next steps:
 4. Test a search:
    pplx search "Hello world" --mode auto
 
-5. Add to your agent harness:
-   Claude Code: claude --plugin-dir $INSTALL_DIR/pplx-plugin
-   OpenCode:    add $INSTALL_DIR/pplx-plugin to skills.paths
+5. Plugin commands available:
+   /pplx-research      - Grounded web/Space research
+   /pplx-orchestrate   - Multi-step research chains
+   /pplx-space         - Space management
+   /pplx-threads       - Thread workflows
+   /pplx-upload        - File upload
+   /pplx-settings      - Account audit
+   /pplx-pro-optimizer - Mode optimization
+   /pplx-persist       - Knowledge persistence
+   /pplx-assets        - Asset management
+   /pplx-cli-check     - Health diagnostics
+   /pplx-bws-setup     - BWS configuration
+
+6. Shell helpers:
+   bash $INSTALL_DIR/pplx-plugin/scripts/pplx-health.sh --verbose --no-search
+   bash $INSTALL_DIR/pplx-plugin/scripts/pplx-pro-check.sh --verbose
+   bash $INSTALL_DIR/pplx-plugin/scripts/pplx-research-chain.sh "query" "follow-up"
 
 For help: pplx --help
-For plugin commands: ls $INSTALL_DIR/pplx-plugin/commands/
+For plugin docs: cat $INSTALL_DIR/pplx-plugin/README.md
 
 EOF
 }
@@ -121,12 +186,17 @@ EOF
 main() {
     echo "PPLX Installer for macOS"
     echo "========================"
+    echo ""
+    echo "Install directory: $INSTALL_DIR"
+    echo "Plugin target: $PLUGIN_FOR"
+    echo ""
 
     check_prereqs
     clone_repo
     setup_venv
     install_package
     verify_install
+    install_plugin
     print_next_steps
 }
 

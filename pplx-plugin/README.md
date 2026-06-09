@@ -2,17 +2,21 @@
 
 Marketplace-ready Perplexity AI toolkit for Claude Code, OpenCode, Codex, and shell-native agent harnesses.
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 
 ## What It Provides
 
 - **Grounded research** with Perplexity mode discipline and follow-up chaining
+- **Pro mode optimization** with auto-escalation heuristics for coding contexts
 - **Space management** for persistent project knowledge bases
 - **Thread workflows** for search, summary, export, and cross-thread analysis
 - **Dependency grounding** to avoid stale external API patterns
+- **Knowledge persistence** via memories, scheduled tasks, and workflows
+- **Asset management** for tracking Perplexity-generated reports, code, and artifacts
+- **Advanced research orchestration** with multi-step chains and cross-validation
 - **Portable CLI fallback** backed by the local `pplx` Python client
 - **BWS-first cookie auth diagnostics** via `bitwarden-sdk`, with legacy `bw` fallback
-- **Hooks** for readiness checks, cost guardrails, dependency-change nudges, and compaction preservation
+- **Hooks** for readiness checks, cost guardrails, dependency-change nudges, Pro mode escalation, memory preservation, asset tracking, and compaction preservation
 - **Subagents** for knowledge curation, thread analysis, and stale-doc risk scanning
 
 ## Plugin Layout
@@ -92,12 +96,27 @@ Load the plugin directory with your agent harness plugin mechanism (Claude Code,
 | Command | Purpose |
 |---|---|
 | `/pplx-research` | Grounded web/Space research with mode guardrails |
+| `/pplx-orchestrate` | Multi-step research chains with synthesis |
 | `/pplx-space` | Create, audit, upload to, and search Spaces |
 | `/pplx-threads` | Search, summarize, share, batch delete, and analyze threads |
 | `/pplx-upload` | Safely upload docs/manifests to Spaces |
 | `/pplx-settings` | Audit account/client/BWS state |
 | `/pplx-bws-setup` | Configure/verify BWS SDK cookie auth |
 | `/pplx-cli-check` | Diagnose local CLI/auth/model discovery |
+| `/pplx-pro-optimizer` | Guide optimal mode selection (auto/pro/reasoning/deep_research) |
+| `/pplx-persist` | Save findings to memories, create scheduled tasks |
+| `/pplx-assets` | Track, pin, and download generated assets |
+
+## Pro Mode Optimization
+
+The plugin includes intelligent mode escalation for coding contexts:
+
+- **Auto-escalate to `pro`** for breaking changes, cited analysis, and security checks
+- **Auto-escalate to `reasoning`** for architecture decisions, debugging, and migration planning
+- **Auto-escalate to `deep_research`** for framework evaluations and comprehensive comparisons
+- **Stay in `auto`** for quick facts, version checks, and stable syntax
+
+Hooks provide guidance (never blocking) when escalation is recommended. The agent always makes the final decision.
 
 ## Shell Harness Usage
 
@@ -107,6 +126,9 @@ Any shell-capable agent can use:
 pplx search "query" --mode auto
 pplx spaces list
 pplx threads list --search "topic"
+pplx memories list --limit 50
+pplx tasks list
+pplx assets list --limit 20
 bash pplx-plugin/scripts/pplx-upload.sh <space> <file>
 bash pplx-plugin/scripts/pplx-summarize.sh <thread-slug>
 ```
@@ -119,6 +141,7 @@ bash pplx-plugin/scripts/pplx-summarize.sh <thread-slug>
 - Never print cookie values or BWS tokens; report only validation status.
 - Prefer local code inspection over web search for repo-specific behavior.
 - Preserve `backend_uuid`, Space UUIDs/slugs, and thread slugs before compaction.
+- Ask before deleting memories, tasks, Spaces, or assets.
 
 ## Development Notes
 

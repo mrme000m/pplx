@@ -12,16 +12,36 @@ No cookie files on disk — credentials are pulled directly from your Bitwarden 
 curl -fsSL https://raw.githubusercontent.com/mrme000m/pplx/main/install.sh | bash
 ```
 
-Or with a custom install directory:
+With options:
 
 ```bash
+# Custom install directory
 curl -fsSL https://raw.githubusercontent.com/mrme000m/pplx/main/install.sh | bash -s -- --dev-dir ~/projects
+
+# Skip plugin installation (CLI only)
+curl -fsSL https://raw.githubusercontent.com/mrme000m/pplx/main/install.sh | bash -s -- --skip-plugin
+
+# Install plugin for specific agent only
+curl -fsSL https://raw.githubusercontent.com/mrme000m/pplx/main/install.sh | bash -s -- --plugin-for claude
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "Invoke-Expression (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/mrme000m/pplx/main/install/windows.ps1').Content"
+```
+
+With options:
+
+```powershell
+# Custom install directory
+powershell -ExecutionPolicy Bypass -File install\windows.ps1 -DevDir "C:\projects"
+
+# Skip plugin installation
+powershell -ExecutionPolicy Bypass -File install\windows.ps1 -SkipPlugin
+
+# Install plugin for specific agent only
+powershell -ExecutionPolicy Bypass -File install\windows.ps1 -PluginFor "claude"
 ```
 
 ### Manual Install
@@ -169,75 +189,94 @@ print(result["text"]["answer"])
 
 ## Agent & IDE Integration
 
+The installer auto-detects and configures the plugin for supported agent harnesses. To install manually:
+
+```bash
+# Install plugin for all detected agents
+bash install/install-plugin.sh /path/to/pplx/pplx-plugin all
+
+# Or for a specific agent
+bash install/install-plugin.sh /path/to/pplx/pplx-plugin claude
+bash install/install-plugin.sh /path/to/pplx/pplx-plugin opencode
+bash install/install-plugin.sh /path/to/pplx/pplx-plugin codex
+```
+
 ### Claude Code
 
+**Auto-install:** The installer detects `claude`/`cc` in PATH and symlinks the plugin to the Claude plugins directory.
+
+**Manual:**
 ```bash
 # Load the plugin (commands + skills + agents + hooks)
 claude --plugin-dir /path/to/pplx/pplx-plugin
 
-# Or add to ~/.claude/CLAUDE.md for persistent access
-# Plugin provides: /pplx-research, /pplx-space, /pplx-threads, /pplx-upload, /pplx-settings, /pplx-bws-setup, /pplx-cli-check
+# Or symlink for persistent access
+ln -s /path/to/pplx/pplx-plugin ~/.claude/plugins/pplx-plugin
 ```
+
+**Available commands:**
+- `/pplx-research` — Grounded web/Space research with mode guardrails
+- `/pplx-orchestrate` — Multi-step research chains with synthesis
+- `/pplx-space` — Create, audit, upload to, and search Spaces
+- `/pplx-threads` — Search, summarize, share, batch delete threads
+- `/pplx-upload` — Safely upload docs/manifests to Spaces
+- `/pplx-settings` — Audit account/client/BWS state
+- `/pplx-pro-optimizer` — Guide optimal mode selection (auto/pro/reasoning/deep_research)
+- `/pplx-persist` — Save findings to memories, create scheduled tasks
+- `/pplx-assets` — Track, pin, and download generated assets
+- `/pplx-cli-check` — Diagnose local CLI/auth/model discovery
+- `/pplx-bws-setup` — Configure/verify BWS SDK cookie auth
+
+**Auto-activating skills:**
+- `cli-integration` — MCP unavailable fallback
+- `dependency-grounding` — Stale API detection
+- `research-deep-dive` — Thorough research workflows
+- `space-management` — Knowledge base operations
+- `thread-workflows` — Thread history management
+- `perplexity-settings` — Account/client audit
+- `pro-mode-optimizer` — Cost-aware mode escalation
+- `knowledge-persistence` — Durable cross-session knowledge
+- `assets-management` — Generated artifact tracking
+- `advanced-research-orchestration` — Multi-step research chains
+
+**Hooks (auto-run):**
+- `SessionStart` — Readiness check + project Space detection
+- `PreToolUse` — Cost guard + Pro mode auto-escalation
+- `PostToolUse` — Dependency nudge + memory preservation + asset tracking
+- `UserPromptSubmit` — Research intent + Pro feature suggestion
+- `Stop` — Research quality gate
+- `PreCompact` — Context preservation
+- `SessionEnd` — Usage summary
 
 ### OpenCode
 
-Add to your `~/.config/opencode/config.yaml` or project `.opencode/config.yaml`:
+**Auto-install:** The installer detects `opencode` in PATH and adds the plugin to `skills.paths`.
 
-```yaml
-skills:
-  paths:
-    - /path/to/pplx/pplx-plugin
+**Manual:**
+Add to your `~/.config/opencode/opencode.json` or project `.opencode/opencode.json`:
+
+```json
+{
+  "skills": {
+    "paths": [
+      "/path/to/pplx/pplx-plugin"
+    ]
+  }
+}
 ```
 
 Commands from `pplx-plugin/commands/` are auto-loaded as slash commands.
 
 ### Codex (GitHub)
 
-Codex supports tool scripts. Add the plugin scripts path:
+**Auto-install:** The installer detects `codex` in PATH and links plugin scripts.
 
+**Manual:**
 ```bash
 # In your Codex environment or .codex/config
 export PATH="/path/to/pplx/pplx-plugin/scripts:$PATH"
-```
-
-### Gemini (Google AI Studio / Vertex AI)
-
-Gemini does not have a native plugin system. Use the **CLI fallback**:
-
-```bash
-pip install -e /path/to/pplx
-pplx search "query" --mode auto
-```
-
-Or expose via MCP if your Gemini client supports MCP servers.
-
-### Kimi (Moonshot AI)
-
-Kimi does not have a native plugin system. Use the **CLI fallback**:
-
-```bash
-pip install -e /path/to/pplx
-pplx search "query" --mode auto
-```
-
-Or use the shell tool to invoke `pplx` commands directly.
-
-### Code Kilo
-
-Code Kilo does not have a native plugin system. Use the **CLI fallback**:
-
-```bash
-pip install -e /path/to/pplx
-pplx search "query" --mode auto
-```
-
-### Pi Coding Agent
-
-Pi does not have a native plugin system. Use the **CLI fallback**:
-
-```bash
-pip install -e /path/to/pplx
-pplx search "query" --mode auto
+export PPLX_REPO_DIR="/path/to/pplx"
+export PPLX_PLUGIN_DIR="/path/to/pplx/pplx-plugin"
 ```
 
 ### Generic Shell-Capable Agent
@@ -249,11 +288,17 @@ Any agent that can run shell commands can use:
 pplx search "query" --mode auto
 pplx spaces list
 pplx threads list --search "topic"
+pplx memories list --limit 50
+pplx tasks list
+pplx assets list --limit 20
 
 # Plugin helper scripts
 bash /path/to/pplx/pplx-plugin/scripts/pplx-health.sh --verbose --no-search
+bash /path/to/pplx/pplx-plugin/scripts/pplx-pro-check.sh --verbose
 bash /path/to/pplx/pplx-plugin/scripts/pplx-upload.sh <space> <file>
 bash /path/to/pplx/pplx-plugin/scripts/pplx-summarize.sh <thread-slug>
+bash /path/to/pplx/pplx-plugin/scripts/pplx-research-chain.sh "query" "follow-up"
+bash /path/to/pplx/pplx-plugin/scripts/pplx-memory-save.sh "key" "value" --project myapp
 ```
 
 ## Architecture

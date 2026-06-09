@@ -1,36 +1,149 @@
 {
-  "hooks": [
-    {
-      "name": "pplx-readiness-check",
-      "hook": "SessionStart",
-      "prompt": "At session start, do a lightweight Perplexity readiness check without making live searches.\n\n1. Prefer MCP if Perplexity search tools are available (perplexity_search, perplexity_search_in_space, etc.). If available, note that MCP is ready and list the relevant slash commands: /pplx-research, /pplx-space, /pplx-threads, /pplx-upload, /pplx-settings, /pplx-cli-check.\n2. If MCP is unavailable, check whether the pplx CLI is likely available. If shell access is available, use a no-network command such as 'command -v pplx' or 'python3 -c \"import pplx\"'. Do not run 'pplx search' automatically.\n3. If neither path is detected, provide one concise setup hint: run /pplx-cli-check or bash <plugin>/scripts/pplx-setup.sh.\n4. Keep output under 8 lines and avoid noisy diagnostics."
-    },
-    {
-      "name": "pplx-cost-and-mode-guard",
-      "hook": "PreToolUse",
-      "tool": "perplexity_search|perplexity_search_in_space|mcp__perplexity__search|mcp__perplexity__search_in_space",
-      "prompt": "Before a Perplexity search runs, check mode and token efficiency.\n\n1. Default mode should be auto unless the user explicitly requested pro, reasoning, or deep_research.\n2. For simple verification, set or suggest answer_only=true.\n3. Use Space search when the query is project-specific and a relevant Space is already known.\n4. If a paid mode is about to be used without explicit user intent, recommend downgrading to auto or asking for confirmation.\n5. Do not block the tool call; this is guidance only."
-    },
-    {
-      "name": "pplx-research-intent-nudge",
-      "hook": "UserPromptSubmit",
-      "prompt": "If the user asks about latest/current APIs, dependency versions, recent changes, unfamiliar libraries, external documentation, or a claim that needs verification, add a one-line suggestion that Perplexity grounding may help.\n\nDo not suggest Perplexity when the answer should come from the local codebase, when the topic is stable language syntax, or when Perplexity has already been used for the same topic in the current session."
-    },
-    {
-      "name": "pplx-dependency-change-nudge",
-      "hook": "PostToolUse",
-      "tool": "Write|Edit",
-      "prompt": "After edits to dependency manifests or framework configuration files (package.json, pnpm-lock.yaml, requirements.txt, pyproject.toml, go.mod, Cargo.toml, next.config, tailwind.config, wrangler config, etc.), suggest one concise Perplexity verification step if external API freshness matters.\n\nExamples: /pplx-research \"<library> <version> breaking changes\" or /pplx-upload <manifest> to the project Space. Do not produce suggestions for unrelated local-only edits."
-    },
-    {
-      "name": "pplx-preserve-context",
-      "hook": "PreCompact",
-      "prompt": "Before compaction, preserve Perplexity continuity information if present: backend_uuid values, Space slugs/UUIDs, thread slugs, active research topic, chosen model/mode, and files uploaded. Output only a compact bullet list if any are found; otherwise output nothing."
-    },
-    {
-      "name": "pplx-usage-summary",
-      "hook": "SessionEnd",
-      "prompt": "At session end, summarize Perplexity usage only if Perplexity MCP tools (perplexity_*), pplx CLI commands, or plugin scripts were used. Include searches, Spaces touched, uploaded files, thread slugs, and paid modes used. If there was no Perplexity activity, output nothing. Keep it under 6 lines."
-    }
-  ]
+  "description": "Perplexity Pro-optimized hooks for coding agents. Auto-escalates to paid modes when justified, preserves research context, tracks assets, and enforces dependency freshness.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "name": "pplx-readiness-check",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "At session start, do a lightweight Perplexity readiness check without making live searches.\n\n1. Prefer MCP if Perplexity search tools are available (perplexity_search, perplexity_search_in_space, etc.). If available, note that MCP is ready and list the relevant slash commands: /pplx-research, /pplx-space, /pplx-threads, /pplx-upload, /pplx-settings, /pplx-cli-check, /pplx-pro-optimizer.\n2. If MCP is unavailable, check whether the pplx CLI is likely available. If shell access is available, use a no-network command such as 'command -v pplx' or 'python3 -c \"import pplx\"'. Do not run 'pplx search' automatically.\n3. If neither path is detected, provide one concise setup hint: run /pplx-cli-check or bash <plugin>/scripts/pplx-setup.sh.\n4. Keep output under 8 lines and avoid noisy diagnostics."
+          }
+        ]
+      },
+      {
+        "name": "pplx-project-space-detector",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "At session start, detect if the current project has a Perplexity Space that should be used for context.\n\n1. Look at the current working directory name (e.g., 'my-project', 'api-v2').\n2. If a Space likely exists for this project (based on directory name matching Space titles), suggest listing Spaces with `pplx spaces list` or MCP `list_spaces` to find it.\n3. If no Space seems to exist, suggest creating one via /pplx-space when the user starts asking project-specific questions.\n4. Do NOT make any API calls or searches — this is purely a suggestion. Keep output to 1-2 lines."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "name": "pplx-cost-and-mode-guard",
+        "matcher": "perplexity_search|perplexity_search_in_space|mcp__perplexity__search|mcp__perplexity__search_in_space",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Before a Perplexity search runs, check mode and token efficiency.\n\n1. Default mode should be auto unless the user explicitly requested pro, reasoning, or deep_research.\n2. AUTO-ESCALATION RULES for coding contexts (only escalate with a clear note to the user):\n   - Architecture/design questions (system design, migration planning) → suggest reasoning\n   - Breaking changes verification for major version bumps → suggest pro\n   - Comprehensive comparison of frameworks/tools for new projects → suggest deep_research\n   - Security vulnerability analysis or compliance check → suggest pro\n3. For simple verification, set or suggest answer_only=true.\n4. Use Space search when the query is project-specific and a relevant Space is already known.\n5. If a paid mode is about to be used without explicit user intent, recommend downgrading to auto OR ask for confirmation.\n6. Do not block the tool call; this is guidance only."
+          }
+        ]
+      },
+      {
+        "name": "pplx-pro-escalation-guard",
+        "matcher": "perplexity_search|mcp__perplexity__search",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Before any Perplexity search executes, evaluate if the query justifies a Pro mode based on these coding-agent heuristics:\n\nAUTO-ESCALATE to pro/reasoning/deep_research when:\n- The query involves comparing 3+ technologies or frameworks\n- The query asks about migration paths, breaking changes, or deprecation\n- The query involves security best practices or vulnerability assessment\n- The query requires cited sources for decision-making\n- The query is about API design patterns or architecture decisions\n- The query asks for step-by-step debugging of complex issues\n\nNEVER auto-escalate when:\n- Simple factual lookup (version number, function signature)\n- Quick syntax check\n- The user previously declined paid modes for similar queries\n- answer_only=true and sources aren't needed\n\nIf escalation is justified, add a note: 'Escalating to <mode> for <reason>. Confirm or downgrade with --mode auto.'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "name": "pplx-dependency-change-nudge",
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "After edits to dependency manifests or framework configuration files (package.json, pnpm-lock.yaml, requirements.txt, pyproject.toml, go.mod, Cargo.toml, next.config, tailwind.config, wrangler config, etc.), suggest one concise Perplexity verification step if external API freshness matters.\n\nExamples: /pplx-research \"<library> <version> breaking changes\" or /pplx-upload <manifest> to the project Space. Do not produce suggestions for unrelated local-only edits."
+          }
+        ]
+      },
+      {
+        "name": "pplx-memory-preservation-nudge",
+        "matcher": "perplexity_search|perplexity_follow_up|mcp__perplexity__search|mcp__perplexity__follow_up",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "After a Perplexity search returns valuable findings, evaluate if the result should be preserved for future sessions.\n\nSUGGEST saving to Perplexity memory when:\n- The finding resolves a non-obvious technical issue (workaround, gotcha, version-specific behavior)\n- The finding documents a decision rationale (why X was chosen over Y)\n- The finding contains version-specific API patterns that will be referenced again\n- The finding is about project-specific configuration or setup\n\nFORMAT suggestion as: 'Consider saving to Perplexity memory: pplx memories add \"<concise key>\" \"<one-line value>\"'\n\nDo NOT suggest for trivial facts or things already in documentation."
+          }
+        ]
+      },
+      {
+        "name": "pplx-asset-tracking-nudge",
+        "matcher": "perplexity_search|mcp__perplexity__search",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "After a Perplexity search, check if the result mentions or contains generated assets (reports, images, code blocks, diagrams, data exports).\n\nIf assets were generated or referenced:\n- Note that they can be listed with `pplx assets list`\n- Suggest pinning important assets with `pplx assets pin <asset_id>`\n- For code artifacts, suggest downloading with `pplx assets download <url> <filename>`\n\nKeep the suggestion to 1 line. If no assets were generated, do nothing."
+          }
+        ]
+      },
+      {
+        "name": "pplx-major-version-deep-research-trigger",
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "After editing dependency manifests, check for MAJOR version changes (e.g., React 18→19, Next.js 13→14, Python 3.12→3.13, etc.).\n\nFor MAJOR version bumps only:\n- Suggest running deep_research: /pplx-research \"<package> <old> to <new> migration guide breaking changes comprehensive\" --mode deep_research\n- This helps catch breaking changes that simple auto search might miss\n\nFor minor/patch changes, suggest a simple auto search instead.\n\nOnly trigger if the version change is clearly a major bump."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "name": "pplx-research-intent-nudge",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "If the user asks about latest/current APIs, dependency versions, recent changes, unfamiliar libraries, external documentation, or a claim that needs verification, add a one-line suggestion that Perplexity grounding may help.\n\nDo not suggest Perplexity when the answer should come from the local codebase, when the topic is stable language syntax, or when Perplexity has already been used for the same topic in the current session."
+          }
+        ]
+      },
+      {
+        "name": "pplx-pro-feature-suggestion",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "When the user submits a prompt that could benefit from PPLX Pro features, suggest the appropriate feature:\n\n- Research-heavy tasks (comparisons, investigations): suggest /pplx-research with --mode pro or --mode reasoning\n- Project knowledge questions: suggest /pplx-space search if a Space exists\n- Recurring monitoring needs: suggest Perplexity scheduled tasks via `pplx tasks create`\n- Cross-thread analysis: suggest /pplx-threads analyze\n\nKeep suggestions to 1 line. Only suggest when the prompt clearly aligns with a Pro feature."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "name": "pplx-research-quality-gate",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Before allowing the session to stop, check if any Perplexity research was conducted but not properly synthesized or acted upon.\n\nBLOCK (with reason) if:\n- A Perplexity search returned findings but no code changes or decisions were made based on them\n- backend_uuid values from research were not preserved for follow-up\n- Findings that should have been saved to memory were not saved\n- A Space search found stale uploaded files that were flagged but not reported\n\nAPPROVE if:\n- Research was properly synthesized into code or recommendations\n- No Perplexity tools were used in this session\n- The user explicitly said they just wanted to browse/research\n\nOutput decision and brief reason."
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "name": "pplx-preserve-context",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Before compaction, preserve Perplexity continuity information if present: backend_uuid values, Space slugs/UUIDs, thread slugs, active research topic, chosen model/mode, files uploaded, memories created, assets generated. Output only a compact bullet list if any are found; otherwise output nothing."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "name": "pplx-usage-summary",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "At session end, summarize Perplexity usage only if Perplexity MCP tools (perplexity_*), pplx CLI commands, or plugin scripts were used. Include searches, Spaces touched, uploaded files, thread slugs, paid modes used, memories saved, and assets generated. If there was no Perplexity activity, output nothing. Keep it under 6 lines."
+          }
+        ]
+      }
+    ]
+  }
 }

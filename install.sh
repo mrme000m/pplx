@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# install.sh — Cross-platform PPLX installer
-# Detects OS and delegates to the appropriate platform script.
-# Usage: bash install.sh [--dev-dir /path/to/install]
+# install.sh — Cross-platform PPLX installer with agent harness plugin setup
+# Detects OS, installs CLI, and sets up the plugin for Claude Code, OpenCode, Codex, etc.
+# Usage: bash install.sh [--dev-dir /path/to/install] [--skip-plugin] [--plugin-for claude|opencode|codex|all]
 
 set -euo pipefail
 
