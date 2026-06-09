@@ -266,15 +266,20 @@ def cmd_spaces_delete(args):
 
 def cmd_spaces_edit(args):
     client = _client()
-    result = client.edit_space(
-        uuid=args.uuid,
-        title=args.title,
-        description=args.description,
-        emoji=args.emoji,
-        instructions=args.instructions,
-        access=args.access,
-        enable_web_by_default=args.enable_web,
-    )
+    kwargs = {"uuid": args.uuid}
+    if args.title is not None:
+        kwargs["title"] = args.title
+    if args.description is not None:
+        kwargs["description"] = args.description
+    if args.emoji is not None:
+        kwargs["emoji"] = args.emoji
+    if args.instructions is not None:
+        kwargs["instructions"] = args.instructions
+    if args.access is not None:
+        kwargs["access"] = args.access
+    if args.enable_web is not None:
+        kwargs["enable_web_by_default"] = args.enable_web
+    result = client.edit_space(**kwargs)
     _print_json(result)
 
 
@@ -777,7 +782,7 @@ def build_parser():
         "--thinking", action="store_true",
         help="Enable thinking mode (uses reasoning variant of selected model)",
     )
-    search_parent.add_argument("--language", default="en-US")
+    search_parent.add_argument("--language", default="en-US", help="Language code (ISO 639, e.g. en-US)")
     search_parent.add_argument("--raw", action="store_true", help="Output full raw JSON")
     search_parent.add_argument("-v", "--verbose", action="store_true")
 
@@ -869,25 +874,26 @@ def build_parser():
     sp_mem_cfg.set_defaults(func=cmd_spaces_memory_config)
 
     sp_get = sp_sub.add_parser("get", help="Get space by slug")
-    sp_get.add_argument("slug")
+    sp_get.add_argument("slug", help="Space slug (full unique identifier)")
     sp_get.set_defaults(func=cmd_spaces_get)
 
     sp_create = sp_sub.add_parser("create", help="Create a space")
-    sp_create.add_argument("--title", required=True)
-    sp_create.add_argument("--description", default="")
-    sp_create.add_argument("--emoji", default="1f4c1")
-    sp_create.add_argument("--instructions", default="")
-    sp_create.add_argument("--access", type=int, default=1, choices=[1, 2])
+    sp_create.add_argument("--title", required=True, help="Space title")
+    sp_create.add_argument("--description", default="", help="Space description")
+    sp_create.add_argument("--emoji", default="1f4c1", help="Emoji unicode code-point (default: 1f4c1)")
+    sp_create.add_argument("--instructions", default="", help="System instructions for the Space")
+    sp_create.add_argument("--access", type=int, default=1, choices=[1, 2], help="Access: 1=private, 2=public")
     sp_create.set_defaults(func=cmd_spaces_create)
 
     sp_edit = sp_sub.add_parser("edit", help="Edit a space")
     sp_edit.add_argument("uuid")
-    sp_edit.add_argument("--title", required=True)
-    sp_edit.add_argument("--description", default="")
-    sp_edit.add_argument("--emoji", default="1f4c1")
-    sp_edit.add_argument("--instructions", default="")
-    sp_edit.add_argument("--access", type=int, default=1, choices=[1, 2])
-    sp_edit.add_argument("--enable-web", action="store_true", default=True)
+    sp_edit.add_argument("--title", default=None, help="New title (omit to keep current)")
+    sp_edit.add_argument("--description", default=None, help="New description (omit to keep current)")
+    sp_edit.add_argument("--emoji", default=None, help="New emoji unicode (omit to keep current)")
+    sp_edit.add_argument("--instructions", default=None, help="New instructions (omit to keep current)")
+    sp_edit.add_argument("--access", type=int, default=None, choices=[1, 2], help="Access level: 1=private, 2=public (omit to keep current)")
+    sp_edit.add_argument("--enable-web", dest="enable_web", action="store_true", default=None, help="Enable web search by default")
+    sp_edit.add_argument("--disable-web", dest="enable_web", action="store_false", default=None, help="Disable web search by default")
     sp_edit.set_defaults(func=cmd_spaces_edit)
 
     sp_del = sp_sub.add_parser("delete", help="Delete a space")
@@ -1160,7 +1166,7 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
     if not hasattr(args, "func"):
-        parser.print_help()
+        parser.print_help(sys.stderr)
         sys.exit(1)
     try:
         args.func(args)

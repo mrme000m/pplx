@@ -7,6 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 # shellcheck source=./pplx-common.sh
 source "$SCRIPT_DIR/pplx-common.sh"
 
+cleanup() { rm -f /tmp/pplx_bws_check.* /tmp/pplx_bws_err.* /tmp/pplx_cookie_loader.* /tmp/pplx_cookie_loader_err.* /tmp/pplx_models_check.* /tmp/pplx_models_err.* /tmp/pplx_search_check.* /tmp/pplx_search_err.*; }
+trap cleanup EXIT
+
 VERBOSE=false
 NO_SEARCH=true
 for arg in "$@"; do
@@ -14,7 +17,7 @@ for arg in "$@"; do
     --verbose|-v) VERBOSE=true ;;
     --no-search) NO_SEARCH=true ;;
     --help|-h)
-      sed -n '1,52p' "$0" | sed 's/^# \{0,1\}//'
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
       exit 0
       ;;
   esac
@@ -51,8 +54,9 @@ done
 
 # Cookie resolution order used by pplx.bw_cookies:
 # 1. PERPLEXITY_COOKIES_PATH file
-# 2. Bitwarden Secrets Manager via bitwarden-sdk, BWS_ACCESS_TOKEN, project 'pplx', secret 'perplexity-cookies'
-# 3. Legacy bw CLI Secure Note named 'perplexity.ai'
+# 2. Default cookie path (~/.config/perplexity/cookies.json)
+# 3. Bitwarden Secrets Manager via bitwarden-sdk, BWS_ACCESS_TOKEN, project 'pplx', secret 'perplexity-cookies'
+# 4. Legacy bw CLI Secure Note named 'perplexity.ai'
 if [ -n "${PERPLEXITY_COOKIES_PATH:-}" ]; then
   if [ -f "$PERPLEXITY_COOKIES_PATH" ]; then
     if "$PPLX_PYTHON" -m json.tool "$PERPLEXITY_COOKIES_PATH" >/dev/null 2>&1; then

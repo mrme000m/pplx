@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 source "$SCRIPT_DIR/pplx-common.sh"
 
 if [ $# -lt 2 ] || [[ "${1:-}" =~ ^--help|-h$ ]]; then
-  sed -n '1,30p' "$0" | sed 's/^# \{0,1\}//'
+  awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
   exit 1
 fi
 

@@ -289,7 +289,7 @@ def get_bws_client(access_token: str = ""):
         RuntimeError: if bitwarden-sdk is not installed or auth fails.
     """
     try:
-        from bitwarden_sdk import BitwardenClient, ClientSettings, DeviceType
+        from bitwarden_sdk import BitwardenClient, ClientSettings
     except ImportError:
         raise RuntimeError(
             "bitwarden-sdk is not installed. Run: pip install bitwarden-sdk"

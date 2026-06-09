@@ -14,7 +14,7 @@ import sys
 import urllib.error
 import urllib.request
 from uuid import uuid4
-from curl_cffi import requests, CurlMime
+from curl_cffi import requests
 
 
 # ---------------------------------------------------------------------------
@@ -613,17 +613,23 @@ class PerplexityClient:
         resp.raise_for_status()
         return {"success": True, "deleted_uuid": uuid}
 
-    def edit_space(self, uuid, title, description="", emoji="1f4c1",
-                   instructions="", access=1, enable_web_by_default=True):
+    def edit_space(self, uuid, title=None, description=None, emoji=None,
+                   instructions=None, access=None, enable_web_by_default=None):
         url = f"https://www.perplexity.ai/rest/collections/edit_collection/{uuid}?version=2.18&source=default"
-        resp = self.session.post(url, json={
-            "title": title,
-            "description": description,
-            "emoji": emoji,
-            "instructions": instructions,
-            "access": access,
-            "enable_web_by_default": enable_web_by_default,
-        })
+        payload = {}
+        if title is not None:
+            payload["title"] = title
+        if description is not None:
+            payload["description"] = description
+        if emoji is not None:
+            payload["emoji"] = emoji
+        if instructions is not None:
+            payload["instructions"] = instructions
+        if access is not None:
+            payload["access"] = access
+        if enable_web_by_default is not None:
+            payload["enable_web_by_default"] = enable_web_by_default
+        resp = self.session.post(url, json=payload)
         resp.raise_for_status()
         return resp.json()
 

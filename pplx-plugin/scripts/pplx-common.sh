@@ -5,11 +5,13 @@ set -euo pipefail
 
 pplx_plugin_dir() {
   local src="${BASH_SOURCE[0]}"
-  while [ -L "$src" ]; do
+  local max_iter=32
+  while [ -L "$src" ] && [ "$max_iter" -gt 0 ]; do
     local dir
     dir="$(cd -P "$(dirname "$src")" >/dev/null 2>&1 && pwd)"
     src="$(readlink "$src")"
     [[ "$src" != /* ]] && src="$dir/$src"
+    max_iter=$((max_iter - 1))
   done
   cd -P "$(dirname "$src")/.." >/dev/null 2>&1 && pwd
 }

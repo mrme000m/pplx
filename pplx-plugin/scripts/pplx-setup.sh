@@ -14,7 +14,7 @@ for arg in "$@"; do
     --install-client) INSTALL_CLIENT=true ;;
     --print-env) PRINT_ENV=true ;;
     --help|-h)
-      sed -n '1,64p' "$0" | sed 's/^# \{0,1\}//'
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
       exit 0
       ;;
   esac

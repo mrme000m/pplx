@@ -15,7 +15,6 @@ _DEFAULT_COOKIE_PATH = Path.home() / ".config" / "perplexity" / "cookies.json"
 
 
 def load_cookies(item_name: str = "perplexity-cookies") -> dict:
-    load_project_env()
     """Load Perplexity cookies.
 
     Resolution order:
@@ -30,6 +29,8 @@ def load_cookies(item_name: str = "perplexity-cookies") -> dict:
     Returns:
         Dictionary of cookie key-value pairs.
     """
+    load_project_env()
+
     # 1. Explicit disk override
     disk_path = os.getenv("PERPLEXITY_COOKIES_PATH", "")
     if disk_path and Path(disk_path).exists():
@@ -39,7 +40,7 @@ def load_cookies(item_name: str = "perplexity-cookies") -> dict:
     if _DEFAULT_COOKIE_PATH.exists():
         return _parse_cookies(_DEFAULT_COOKIE_PATH.read_text(), str(_DEFAULT_COOKIE_PATH))
 
-    # 2. BWS via SDK
+    # 3. BWS via SDK
     try:
         return _load_from_bws(item_name)
     except (RuntimeError, ImportError, ValueError) as e:
@@ -47,7 +48,7 @@ def load_cookies(item_name: str = "perplexity-cookies") -> dict:
         if os.getenv("BWS_ACCESS_TOKEN"):
             raise RuntimeError(f"BWS cookie load failed: {e}") from e
 
-    # 3. Legacy bw CLI fallback
+    # 4. Legacy bw CLI fallback
     try:
         return _load_from_bw_vault("perplexity.ai")
     except Exception:
