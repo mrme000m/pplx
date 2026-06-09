@@ -13,10 +13,11 @@ Create durable knowledge that survives session boundaries using Perplexity memor
 ## Sub-commands
 
 ### memory <key> <value>
-Save a key-value memory to Perplexity.
+Save a key-value memory to a local memory file (Perplexity memories are created via web UI).
 
 ```bash
-pplx memories add "project.auth.decision" "Using OAuth2 + PKCE for mobile app"
+bash <plugin>/scripts/pplx-memory-save.sh "project.auth.decision" \
+  "Using OAuth2 + PKCE for mobile app" --project myapp
 ```
 
 ### task <name> <prompt> --schedule <rrule>

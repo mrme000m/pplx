@@ -43,9 +43,6 @@ workaround.{issue}           → workaround.webpack-esm-hybrid
 ### Commands
 
 ```bash
-# Save a finding
-pplx memories add "lib.nextjs.14.middleware" "Edge middleware requires Node.js compat flag for certain packages"
-
 # List memories
 pplx memories list --limit 50
 pplx memories list --search "nextjs"
@@ -55,6 +52,18 @@ pplx memories get "lib.nextjs.14.middleware"
 
 # Delete (ask first)
 pplx memories delete "lib.nextjs.14.middleware"
+```
+
+### Creating Memories
+
+Perplexity memories are created through the web UI during conversations:
+1. Go to https://www.perplexity.ai/settings/memory
+2. Add key-value pairs manually
+3. Or use the helper script to save to a local file that can be uploaded to a Space:
+
+```bash
+bash <plugin>/scripts/pplx-memory-save.sh "lib.nextjs.14.middleware" \
+  "Edge middleware requires Node.js compat flag" --project myapp
 ```
 
 ## Scheduled Tasks
@@ -114,9 +123,10 @@ Use workflows as starting templates for common research patterns. They provide s
 
 ### Dependency Monitoring Pipeline
 
-1. Save initial dependency versions to memory:
+1. Save initial dependency versions (via web UI or local memory file):
    ```bash
-   pplx memories add "project.deps.versions" "React 18.3, Next.js 14.2, Node 20.12"
+   bash <plugin>/scripts/pplx-memory-save.sh "project.deps.versions" \
+     "React 18.3, Next.js 14.2, Node 20.12" --project myapp
    ```
 
 2. Create weekly task to check for major version announcements:
@@ -139,10 +149,13 @@ Before compaction or session end:
 4. Document any pending decisions
 
 ```bash
-# Example pre-compact preservation
-pplx memories add "session.2025-06-09.topic" "Investigating React Server Components hydration issues"
-pplx memories add "session.2025-06-09.uuid" "backend_uuid: abc-123-def-456"
-pplx memories add "session.2025-06-09.space" "project-docs-space-uuid: xyz-789"
+# Example pre-compact preservation (save to local memory file)
+bash <plugin>/scripts/pplx-memory-save.sh "session.2025-06-09.topic" \
+  "Investigating React Server Components hydration issues"
+bash <plugin>/scripts/pplx-memory-save.sh "session.2025-06-09.uuid" \
+  "backend_uuid: abc-123-def-456"
+bash <plugin>/scripts/pplx-memory-save.sh "session.2025-06-09.space" \
+  "project-docs-space-uuid: xyz-789"
 ```
 
 ## Safety
