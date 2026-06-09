@@ -14,9 +14,13 @@ set -euo pipefail
 REPO_URL="https://github.com/mrme000m/pplx.git"
 TEMP_DIR=""
 
-# Detect if we're being piped (BASH_SOURCE is not a real file on disk)
+# Detect if we're being piped (BASH_SOURCE is not a real file on disk).
+# When piping curl -> bash, BASH_SOURCE is unset. We temporarily disable
+# nounset (-u) to test for its presence safely.
 is_piped() {
-  local src="${BASH_SOURCE[0]:-}"
+  set +u
+  local src="${BASH_SOURCE[0]}"
+  set -u
   [[ -z "$src" || ! -f "$src" ]]
 }
 
