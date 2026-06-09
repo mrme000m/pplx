@@ -143,6 +143,95 @@ result = client.search("Hello world", mode="pro", model="GPT-5.4", thinking=True
 print(result["text"]["answer"])
 ```
 
+## Agent & IDE Integration
+
+### Claude Code
+
+```bash
+# Load the plugin (commands + skills + agents + hooks)
+claude --plugin-dir /path/to/pplx/pplx-plugin
+
+# Or add to ~/.claude/CLAUDE.md for persistent access
+# Plugin provides: /pplx-research, /pplx-space, /pplx-threads, /pplx-upload, /pplx-settings, /pplx-bws-setup, /pplx-cli-check
+```
+
+### OpenCode
+
+Add to your `~/.config/opencode/config.yaml` or project `.opencode/config.yaml`:
+
+```yaml
+skills:
+  paths:
+    - /path/to/pplx/pplx-plugin
+```
+
+Commands from `pplx-plugin/commands/` are auto-loaded as slash commands.
+
+### Codex (GitHub)
+
+Codex supports tool scripts. Add the plugin scripts path:
+
+```bash
+# In your Codex environment or .codex/config
+export PATH="/path/to/pplx/pplx-plugin/scripts:$PATH"
+```
+
+### Gemini (Google AI Studio / Vertex AI)
+
+Gemini does not have a native plugin system. Use the **CLI fallback**:
+
+```bash
+pip install -e /path/to/pplx
+pplx search "query" --mode auto
+```
+
+Or expose via MCP if your Gemini client supports MCP servers.
+
+### Kimi (Moonshot AI)
+
+Kimi does not have a native plugin system. Use the **CLI fallback**:
+
+```bash
+pip install -e /path/to/pplx
+pplx search "query" --mode auto
+```
+
+Or use the shell tool to invoke `pplx` commands directly.
+
+### Code Kilo
+
+Code Kilo does not have a native plugin system. Use the **CLI fallback**:
+
+```bash
+pip install -e /path/to/pplx
+pplx search "query" --mode auto
+```
+
+### Pi Coding Agent
+
+Pi does not have a native plugin system. Use the **CLI fallback**:
+
+```bash
+pip install -e /path/to/pplx
+pplx search "query" --mode auto
+```
+
+### Generic Shell-Capable Agent
+
+Any agent that can run shell commands can use:
+
+```bash
+# Direct CLI
+pplx search "query" --mode auto
+pplx spaces list
+pplx threads list --search "topic"
+
+# Plugin helper scripts
+bash /path/to/pplx/pplx-plugin/scripts/pplx-health.sh --verbose --no-search
+bash /path/to/pplx/pplx-plugin/scripts/pplx-upload.sh <space> <file>
+bash /path/to/pplx/pplx-plugin/scripts/pplx-summarize.sh <thread-slug>
+```
+
 ## Architecture
 
 ```
