@@ -82,11 +82,11 @@ verify_install() {
 
     echo ""
     echo "Running health check (no live search)..."
-    bash "$INSTALL_DIR/pplx-plugin/scripts/pplx-health.sh" --no-search 2>/dev/null || true
+    PPLX_PYTHON="$VENV_DIR/bin/python" bash "$INSTALL_DIR/pplx-plugin/scripts/pplx-health.sh" --no-search 2>/dev/null || true
 }
 
 print_next_steps() {
-    cat <<'EOF'
+    cat <<EOF
 
 ========================================
   PPLX Installation Complete!
@@ -95,7 +95,7 @@ print_next_steps() {
 Next steps:
 
 1. Activate the virtual environment:
-   source ~/.venv/bin/activate
+   source $INSTALL_DIR/.venv/bin/activate
 
 2. Set up Bitwarden authentication:
    - Ensure 'bw' CLI is installed: brew install bitwarden-cli
@@ -109,11 +109,11 @@ Next steps:
    pplx search "Hello world" --mode auto
 
 5. Add to your agent harness:
-   Claude Code: claude --plugin-dir INSTALL_DIR/pplx-plugin
-   OpenCode:    add INSTALL_DIR/pplx-plugin to skills.paths
+   Claude Code: claude --plugin-dir $INSTALL_DIR/pplx-plugin
+   OpenCode:    add $INSTALL_DIR/pplx-plugin to skills.paths
 
 For help: pplx --help
-For plugin commands: ls INSTALL_DIR/pplx-plugin/commands/
+For plugin commands: ls $INSTALL_DIR/pplx-plugin/commands/
 
 EOF
 }
