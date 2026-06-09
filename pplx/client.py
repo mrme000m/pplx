@@ -123,8 +123,8 @@ class PerplexityClient:
             if user.get("email"):
                 self.own = True
                 self.copilot = float("inf")
-                # Load dynamic model config
-                self._load_models_config()
+            # Always load model config (works even when not fully logged in)
+            self._load_models_config()
         else:
             self.own = False
             self.copilot = 0

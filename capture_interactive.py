@@ -9,9 +9,6 @@ import time
 import json
 from pathlib import Path
 
-# Add perplexity-web-wrapper scripts to path for imports
-sys.path.insert(0, '/Volumes/ExMac/code/MCP/perplexity-web-wrapper/skills/perplexity-login/scripts')
-
 import cdp_har
 from cdp_har import CDPSession, HARBuilder, launch_cloakbrowser, connect_cdp, inject_cookies, kill_port
 

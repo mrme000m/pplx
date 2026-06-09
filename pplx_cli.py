@@ -89,6 +89,25 @@ def _print_search_result(result, args):
             print(f"\n[backend_uuid: {data['backend_uuid']}]")
 
 
+def cmd_refresh_cookies(args):
+    """Run the deterministic cookie refresh pipeline."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parent / "scripts" / "refresh_cookies.py"
+    if not script.exists():
+        print(f"Error: refresh script not found: {script}", file=sys.stderr)
+        sys.exit(1)
+
+    cmd = [sys.executable, str(script)]
+    if args.headless:
+        cmd.append("--headless")
+
+    result = subprocess.run(cmd)
+    sys.exit(result.returncode)
+
+
 def cmd_search(args):
     client = _client()
     result = client.search(
@@ -1078,6 +1097,17 @@ def build_parser():
     # workflows
     wf = sub.add_parser("workflows", help="List available workflows")
     wf.set_defaults(func=cmd_workflows)
+
+    # refresh-cookies
+    rc = sub.add_parser(
+        "refresh-cookies",
+        help="Refresh Perplexity cookies via CloakBrowser CDP + Gmail OTP"
+    )
+    rc.add_argument(
+        "--headless", action="store_true",
+        help="Run CloakBrowser in headless mode (no GUI window)"
+    )
+    rc.set_defaults(func=cmd_refresh_cookies)
 
     return p
 
