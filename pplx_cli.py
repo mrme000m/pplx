@@ -19,6 +19,8 @@ import json
 import sys
 from pathlib import Path
 
+__version__ = "0.1.0"
+
 
 def _client():
     from pplx import PerplexityClient
@@ -225,8 +227,18 @@ def cmd_spaces_list(args):
 
 def cmd_spaces_get(args):
     client = _client()
-    result = client.get_space(args.slug)
-    _print_json(result)
+    try:
+        result = client.get_space(args.slug)
+        _print_json(result)
+    except Exception as e:
+        msg = str(e)
+        # Provide clearer error message for slug vs UUID confusion
+        if "VIEW_COLLECTION_NOT_ALLOWED" in msg or "403" in msg or "404" in msg:
+            print(f"Error: '{args.slug}' not found or access denied.", file=sys.stderr)
+            print("\nTip: Space slugs must be the full unique identifier, not a partial name.", file=sys.stderr)
+            print("      Use 'pplx spaces list' to see all spaces and their full slugs.", file=sys.stderr)
+            sys.exit(1)
+        raise
 
 
 def cmd_spaces_create(args):
@@ -626,13 +638,31 @@ def cmd_rate_limits(args):
     if args.raw:
         _print_json(result)
     else:
+        # Handle new API response structure with "remaining_detail" and "modes"
         for key, info in result.items():
             if not isinstance(info, dict):
                 continue
-            remaining = info.get("remaining", "?")
-            limit = info.get("limit", "?")
-            reset_at = info.get("reset_time", "?")
-            print(f"  {key}: {remaining}/{limit} (resets {reset_at})")
+            
+            # Try old format first (backward compatibility)
+            if "remaining" in info:
+                remaining = info.get("remaining", "?")
+                limit = info.get("limit", "?")
+                reset_at = info.get("reset_time", "?")
+                print(f"  {key}: {remaining}/{limit} (resets {reset_at})")
+            else:
+                # New format with remaining_detail
+                available = info.get("available", False)
+                remaining_detail = info.get("remaining_detail", {})
+                kind = remaining_detail.get("kind", "not_provided")
+                
+                if kind == "exact":
+                    remaining = remaining_detail.get("remaining", "?")
+                    limit = remaining_detail.get("limit", "?")
+                    print(f"  {key}: {remaining}/{limit} (available: {available})")
+                elif kind == "not_provided":
+                    print(f"  {key}: Not provided (available: {available})")
+                else:
+                    print(f"  {key}: ?/? (available: {available})")
 
 
 def cmd_notifications(args):
@@ -681,7 +711,23 @@ def cmd_status(args):
             print("\nRate Limits:")
             for key, info in results["rate_limits"].items():
                 if isinstance(info, dict):
-                    print(f"  {key}: {info.get('remaining', '?')}/{info.get('limit', '?')}")
+                    # Try old format first (backward compatibility)
+                    if "remaining" in info:
+                        remaining = info.get("remaining", "?")
+                        limit = info.get("limit", "?")
+                        print(f"  {key}: {remaining}/{limit}")
+                    else:
+                        # New format with remaining_detail
+                        available = info.get("available", False)
+                        remaining_detail = info.get("remaining_detail", {})
+                        kind = remaining_detail.get("kind", "not_provided")
+                        
+                        if kind == "exact":
+                            remaining = remaining_detail.get("remaining", "?")
+                            limit = remaining_detail.get("limit", "?")
+                            print(f"  {key}: {remaining}/{limit} (available: {available})")
+                        else:
+                            print(f"  {key}: Not provided (available: {available})")
         if "asi_access" in results:
             a = results["asi_access"]
             print(f"\nASI Access: {a.get('has_access', a)}")
@@ -709,8 +755,6 @@ def cmd_tasks_recurring(args):
 
 
 def build_parser():
-    from pplx import __version__
-
     p = argparse.ArgumentParser(
         prog="pplx",
         description="PPLX — Perplexity AI CLI (Bitwarden-backed, dynamic models)",

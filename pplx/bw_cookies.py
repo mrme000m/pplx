@@ -11,14 +11,18 @@ from pathlib import Path
 from .config import load_project_env
 
 
+_DEFAULT_COOKIE_PATH = Path.home() / ".config" / "perplexity" / "cookies.json"
+
+
 def load_cookies(item_name: str = "perplexity-cookies") -> dict:
     load_project_env()
     """Load Perplexity cookies.
 
     Resolution order:
       1. $PERPLEXITY_COOKIES_PATH file on disk.
-      2. Bitwarden Secrets Manager (bitwarden-sdk) secret named 'perplexity-cookies'.
-      3. Legacy Bitwarden vault secure note named 'perplexity.ai' (via bw CLI).
+      2. Default cookie path (~/.config/perplexity/cookies.json).
+      3. Bitwarden Secrets Manager (bitwarden-sdk) secret named 'perplexity-cookies'.
+      4. Legacy Bitwarden vault secure note named 'perplexity.ai' (via bw CLI).
 
     Args:
         item_name: Key of the BWS secret or name of the bw secure note.
@@ -26,10 +30,14 @@ def load_cookies(item_name: str = "perplexity-cookies") -> dict:
     Returns:
         Dictionary of cookie key-value pairs.
     """
-    # 1. Disk override
+    # 1. Explicit disk override
     disk_path = os.getenv("PERPLEXITY_COOKIES_PATH", "")
     if disk_path and Path(disk_path).exists():
         return _parse_cookies(Path(disk_path).read_text(), disk_path)
+
+    # 2. Default cookie path (where login.py / refresh_cookies.py save)
+    if _DEFAULT_COOKIE_PATH.exists():
+        return _parse_cookies(_DEFAULT_COOKIE_PATH.read_text(), str(_DEFAULT_COOKIE_PATH))
 
     # 2. BWS via SDK
     try:
@@ -48,6 +56,7 @@ def load_cookies(item_name: str = "perplexity-cookies") -> dict:
     raise RuntimeError(
         "No Perplexity cookies found.\n"
         "Options:\n"
+        f"  • Ensure cookies exist at {_DEFAULT_COOKIE_PATH}\n"
         "  • Set PERPLEXITY_COOKIES_PATH=/path/to/cookies.json\n"
         "  • Run: python scripts/setup_bws_secret.py\n"
         "  • Store cookies in a Bitwarden secure note named 'perplexity.ai'"

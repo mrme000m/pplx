@@ -7,8 +7,8 @@ navigates to target URLs, captures network request/response pairs as HAR-style
 traces so we can reverse-engineer the actual API endpoints.
 
 Usage:
-    python3 cdp_har.py --url https://www.perplexity.ai/account/shortcuts [--output shortcuts.har]
-    python3 cdp_har.py --url https://www.perplexity.ai/account/personalize [--browser-already-running]
+    python3 scripts/cdp_har.py --url https://www.perplexity.ai/account/shortcuts [--output shortcuts.har]
+    python3 scripts/cdp_har.py --url https://www.perplexity.ai/account/personalize [--browser-already-running]
 """
 
 from __future__ import annotations

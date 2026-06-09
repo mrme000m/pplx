@@ -1367,12 +1367,25 @@ class PerplexityClient:
 
         Uses the last segment of the dotted key for fuzzy search,
         then exact-matches on memory_key in the results.
+        If fuzzy search fails, falls back to listing all memories.
         """
-        # API search is fuzzy — use last segment for better results
+        # Try fuzzy search first (faster for most cases)
         search_term = memory_key.split(".")[-1]
         resp = self.session.get(
             "https://www.perplexity.ai/rest/memories/list",
             params={"limit": 20, "offset": 0, "query": search_term, "version": "2.18", "source": "default"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        for m in data.get("memories", []):
+            if m.get("memory_key") == memory_key:
+                return m
+        
+        # Fallback: list all memories and filter client-side
+        # This handles cases where fuzzy search doesn't find the exact key
+        resp = self.session.get(
+            "https://www.perplexity.ai/rest/memories/list",
+            params={"limit": 200, "offset": 0, "query": "", "version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
         data = resp.json()
