@@ -91,6 +91,52 @@ def _print_search_result(result, args):
             print(f"\n[backend_uuid: {data['backend_uuid']}]")
 
 
+# ---------------------------------------------------------------------------
+# Command helpers — eliminate repetitive boilerplate
+# ---------------------------------------------------------------------------
+
+def _json_cmd(func):
+    """Wrap a simple command: create client, call func(client, args), print JSON."""
+    def wrapper(args):
+        client = _client()
+        result = func(client, args)
+        _print_json(result)
+    wrapper.__name__ = func.__name__
+    wrapper.__doc__ = func.__doc__
+    return wrapper
+
+
+def _confirm_delete(resource_name, attr="uuid"):
+    """Decorator for delete commands requiring confirmation."""
+    def decorator(func):
+        def wrapper(args):
+            if not args.force:
+                target = getattr(args, attr)
+                ok = input(f"Delete {resource_name} {target}? [y/N] ")
+                if ok.lower() not in ("y", "yes"):
+                    print("Cancelled.")
+                    return
+            return func(args)
+        wrapper.__name__ = func.__name__
+        wrapper.__doc__ = func.__doc__
+        return wrapper
+    return decorator
+
+
+def _raw_cmd(func):
+    """Wrap a command with raw/formatted dual output."""
+    def wrapper(args):
+        client = _client()
+        result = func(client, args)
+        if args.raw:
+            _print_json(result)
+        else:
+            return result
+    wrapper.__name__ = func.__name__
+    wrapper.__doc__ = func.__doc__
+    return wrapper
+
+
 def cmd_refresh_cookies(args):
     """Run the deterministic cookie refresh pipeline."""
     import subprocess
@@ -169,61 +215,35 @@ def cmd_models(args):
             print(f"  {key}: {info.get('label')} [{info.get('provider')}] - {info.get('description')}")
 
 
-def cmd_threads_list(args):
-    client = _client()
-    result = client.list_threads(
-        limit=args.limit,
-        offset=args.offset,
-        search_term=args.search or "",
-        ascending=args.ascending,
-    )
-    _print_json(result)
+@_json_cmd
+def cmd_threads_list(client, args):
+    return client.list_threads( limit=args.limit, offset=args.offset, search_term=args.search or "", ascending=args.ascending, )
 
+@_json_cmd
+def cmd_threads_recent(client, args):
+    return client.list_recent_threads(exclude_asi=args.exclude_asi)
 
-def cmd_threads_recent(args):
-    client = _client()
-    result = client.list_recent_threads(exclude_asi=args.exclude_asi)
-    _print_json(result)
+@_json_cmd
+def cmd_threads_pinned(client, args):
+    return client.list_pinned_threads()
 
+@_json_cmd
+def cmd_threads_get(client, args):
+    return client.get_thread(args.slug)
 
-def cmd_threads_pinned(args):
-    client = _client()
-    result = client.list_pinned_threads()
-    _print_json(result)
-
-
-def cmd_threads_get(args):
-    client = _client()
-    result = client.get_thread(args.slug)
-    _print_json(result)
-
-
-def cmd_threads_delete(args):
-    if not args.force:
-        ok = input(f"Delete thread(s) {args.context_uuids}? [y/N] ")
-        if ok.lower() not in ("y", "yes"):
-            print("Cancelled.")
-            return
-    client = _client()
+@_confirm_delete("thread(s)", "context_uuids")
+@_json_cmd
+def cmd_threads_delete(client, args):
     uuids = args.context_uuids.split(",")
-    result = client.delete_threads(context_uuids=uuids)
-    _print_json(result)
+    return client.delete_threads(context_uuids=uuids)
 
+@_json_cmd
+def cmd_threads_rename(client, args):
+    return client.rename_thread( context_uuid=args.context_uuid, title=args.title, )
 
-def cmd_threads_rename(args):
-    client = _client()
-    result = client.rename_thread(
-        context_uuid=args.context_uuid,
-        title=args.title,
-    )
-    _print_json(result)
-
-
-def cmd_spaces_list(args):
-    client = _client()
-    result = client.list_spaces(limit=args.limit)
-    _print_json(result)
-
+@_json_cmd
+def cmd_spaces_list(client, args):
+    return client.list_spaces(limit=args.limit)
 
 def cmd_spaces_get(args):
     client = _client()
@@ -241,31 +261,17 @@ def cmd_spaces_get(args):
         raise
 
 
-def cmd_spaces_create(args):
-    client = _client()
-    result = client.create_space(
-        title=args.title,
-        description=args.description,
-        emoji=args.emoji,
-        instructions=args.instructions,
-        access=args.access,
-    )
-    _print_json(result)
+@_json_cmd
+def cmd_spaces_create(client, args):
+    return client.create_space( title=args.title, description=args.description, emoji=args.emoji, instructions=args.instructions, access=args.access, )
 
+@_confirm_delete("space", "uuid")
+@_json_cmd
+def cmd_spaces_delete(client, args):
+    return client.delete_space(args.uuid)
 
-def cmd_spaces_delete(args):
-    if not args.force:
-        ok = input(f"Delete space {args.uuid}? [y/N] ")
-        if ok.lower() not in ("y", "yes"):
-            print("Cancelled.")
-            return
-    client = _client()
-    result = client.delete_space(args.uuid)
-    _print_json(result)
-
-
-def cmd_spaces_edit(args):
-    client = _client()
+@_json_cmd
+def cmd_spaces_edit(client, args):
     kwargs = {"uuid": args.uuid}
     if args.title is not None:
         kwargs["title"] = args.title
@@ -279,302 +285,173 @@ def cmd_spaces_edit(args):
         kwargs["access"] = args.access
     if args.enable_web is not None:
         kwargs["enable_web_by_default"] = args.enable_web
-    result = client.edit_space(**kwargs)
-    _print_json(result)
+    return client.edit_space(**kwargs)
 
+@_json_cmd
+def cmd_spaces_threads(client, args):
+    return client.list_space_threads( slug=args.slug, limit=args.limit, offset=args.offset, )
 
-def cmd_spaces_threads(args):
-    client = _client()
-    result = client.list_space_threads(
-        slug=args.slug,
-        limit=args.limit,
-        offset=args.offset,
-    )
-    _print_json(result)
+@_json_cmd
+def cmd_spaces_articles(client, args):
+    return client.list_space_articles( slug=args.slug, limit=args.limit, offset=args.offset, )
 
+@_json_cmd
+def cmd_spaces_tasks(client, args):
+    return client.get_space_tasks(args.uuid)
 
-def cmd_spaces_articles(args):
-    client = _client()
-    result = client.list_space_articles(
-        slug=args.slug,
-        limit=args.limit,
-        offset=args.offset,
-    )
-    _print_json(result)
+@_json_cmd
+def cmd_spaces_files(client, args):
+    return client.list_space_files( uuid=args.uuid, search_keyword=args.search or "", page_size=args.page_size, cursor=args.cursor, )
 
-
-def cmd_spaces_tasks(args):
-    client = _client()
-    result = client.get_space_tasks(args.uuid)
-    _print_json(result)
-
-
-def cmd_spaces_files(args):
-    client = _client()
-    result = client.list_space_files(
-        uuid=args.uuid,
-        search_keyword=args.search or "",
-        page_size=args.page_size,
-        cursor=args.cursor,
-    )
-    _print_json(result)
-
-
-def cmd_spaces_upload(args):
-    client = _client()
+@_json_cmd
+def cmd_spaces_upload(client, args):
     content = args.file.read_bytes()
-    result = client.upload_file_to_space(
+    return client.upload_file_to_space(
         uuid=args.uuid,
         filename=args.file.name,
         file_content=content,
     )
-    _print_json(result)
 
-
-def cmd_spaces_delete_files(args):
-    client = _client()
+@_json_cmd
+def cmd_spaces_delete_files(client, args):
     uuids = args.file_uuids.split(",")
-    result = client.delete_space_files(args.uuid, uuids)
-    _print_json(result)
+    return client.delete_space_files(args.uuid, uuids)
 
+@_json_cmd
+def cmd_spaces_upload_status(client, args):
+    return client.get_upload_status(args.uuid)
 
-def cmd_spaces_upload_status(args):
-    client = _client()
-    result = client.get_upload_status(args.uuid)
-    _print_json(result)
+@_json_cmd
+def cmd_spaces_links(client, args):
+    return client.list_space_links(slug=args.slug)
 
+@_json_cmd
+def cmd_spaces_links_add(client, args):
+    return client.add_space_link(uuid=args.uuid, link=args.link)
 
-def cmd_spaces_links(args):
-    client = _client()
-    result = client.list_space_links(slug=args.slug)
-    _print_json(result)
+@_json_cmd
+def cmd_spaces_links_remove(client, args):
+    return client.remove_space_link(uuid=args.uuid, link=args.link)
 
+@_json_cmd
+def cmd_spaces_add_thread(client, args):
+    return client.upsert_thread_collection( context_uuid=args.context_uuid, new_collection_uuid=args.uuid, return_collection=args.return_collection, return_thread=args.return_thread, )
 
-def cmd_spaces_links_add(args):
-    client = _client()
-    result = client.add_space_link(uuid=args.uuid, link=args.link)
-    _print_json(result)
+@_json_cmd
+def cmd_spaces_landing(client, args):
+    return client.list_spaces_v2( limit=args.limit, cursor=args.cursor, sections=args.sections, )
 
+@_json_cmd
+def cmd_spaces_pins(client, args):
+    return client.list_user_pins()
 
-def cmd_spaces_links_remove(args):
-    client = _client()
-    result = client.remove_space_link(uuid=args.uuid, link=args.link)
-    _print_json(result)
+@_json_cmd
+def cmd_discover(client, args):
+    return client.get_discover_feed(limit=args.limit, category=args.category)
 
+@_json_cmd
+def cmd_profile(client, args):
+    return client.get_profile()
 
-def cmd_spaces_add_thread(args):
-    client = _client()
-    result = client.upsert_thread_collection(
-        context_uuid=args.context_uuid,
-        new_collection_uuid=args.uuid,
-        return_collection=args.return_collection,
-        return_thread=args.return_thread,
-    )
-    _print_json(result)
+@_json_cmd
+def cmd_credits(client, args):
+    return client.get_credits_balance()
 
+@_json_cmd
+def cmd_spaces_recent(client, args):
+    return client.list_recent_spaces()
 
-def cmd_spaces_landing(args):
-    client = _client()
-    result = client.list_spaces_v2(
-        limit=args.limit,
-        cursor=args.cursor,
-        sections=args.sections,
-    )
-    _print_json(result)
-
-
-def cmd_spaces_pins(args):
-    client = _client()
-    result = client.list_user_pins()
-    _print_json(result)
-
-
-def cmd_discover(args):
-    client = _client()
-    result = client.get_discover_feed(limit=args.limit, category=args.category)
-    _print_json(result)
-
-
-def cmd_profile(args):
-    client = _client()
-    result = client.get_profile()
-    _print_json(result)
-
-
-def cmd_credits(args):
-    client = _client()
-    result = client.get_credits_balance()
-    _print_json(result)
-
-
-def cmd_spaces_recent(args):
-    client = _client()
-    result = client.list_recent_spaces()
-    _print_json(result)
-
-
-def cmd_spaces_skills_add(args):
-    client = _client()
+@_json_cmd
+def cmd_spaces_skills_add(client, args):
     content = args.file.read_bytes()
-    result = client.upload_skill_to_space(
+    return client.upload_skill_to_space(
         uuid=args.uuid,
         filename=args.file.name,
         file_content=content,
     )
-    _print_json(result)
 
+@_json_cmd
+def cmd_spaces_skills_list(client, args):
+    return client.list_space_skills(uuid=args.uuid, limit=args.limit)
 
-def cmd_spaces_skills_list(args):
-    client = _client()
-    result = client.list_space_skills(uuid=args.uuid, limit=args.limit)
-    _print_json(result)
+@_json_cmd
+def cmd_spaces_skills_get(client, args):
+    return client.get_skill(skill_id=args.skill_id)
 
+@_confirm_delete("skill", "skill_id")
+@_json_cmd
+def cmd_spaces_skills_delete(client, args):
+    return client.delete_skill(skill_id=args.skill_id)
 
-def cmd_spaces_skills_get(args):
-    client = _client()
-    result = client.get_skill(skill_id=args.skill_id)
-    _print_json(result)
+@_json_cmd
+def cmd_assets_list(client, args):
+    return client.list_assets(limit=args.limit, collapse_versions=not args.versions)
 
+@_json_cmd
+def cmd_assets_pins(client, args):
+    return client.list_pinned_assets(limit=args.limit)
 
-def cmd_spaces_skills_delete(args):
-    if not args.force:
-        ok = input(f"Delete skill {args.skill_id}? [y/N] ")
-        if ok.lower() not in ("y", "yes"):
-            print("Cancelled.")
-            return
-    client = _client()
-    result = client.delete_skill(skill_id=args.skill_id)
-    _print_json(result)
+@_json_cmd
+def cmd_assets_shared(client, args):
+    return client.list_shared_assets(limit=args.limit)
 
+@_json_cmd
+def cmd_assets_pin(client, args):
+    return client.pin_asset(asset_id=args.asset_id)
 
-def cmd_assets_list(args):
-    client = _client()
-    result = client.list_assets(limit=args.limit, collapse_versions=not args.versions)
-    _print_json(result)
+@_json_cmd
+def cmd_assets_unpin(client, args):
+    return client.unpin_asset(asset_id=args.asset_id)
 
+@_confirm_delete("asset", "asset_id")
+@_json_cmd
+def cmd_assets_delete(client, args):
+    return client.delete_asset(asset_id=args.asset_id)
 
-def cmd_assets_pins(args):
-    client = _client()
-    result = client.list_pinned_assets(limit=args.limit)
-    _print_json(result)
+@_json_cmd
+def cmd_assets_download(client, args):
+    return client.download_asset(url=args.url, filename=args.filename)
 
+@_json_cmd
+def cmd_settings(client, args):
+    return client.get_user_settings()
 
-def cmd_assets_shared(args):
-    client = _client()
-    result = client.list_shared_assets(limit=args.limit)
-    _print_json(result)
+@_json_cmd
+def cmd_spaces_writable(client, args):
+    return client.list_writable_spaces()
 
+@_json_cmd
+def cmd_sources(client, args):
+    return client.list_sources()
 
-def cmd_assets_pin(args):
-    client = _client()
-    result = client.pin_asset(asset_id=args.asset_id)
-    _print_json(result)
+@_json_cmd
+def cmd_sources_discover(client, args):
+    return client.discover_sources()
 
+@_json_cmd
+def cmd_billing(client, args):
+    return client.get_billing_info()
 
-def cmd_assets_unpin(args):
-    client = _client()
-    result = client.unpin_asset(asset_id=args.asset_id)
-    _print_json(result)
+@_json_cmd
+def cmd_tasks_list(client, args):
+    return client.list_scheduled_tasks()
 
+@_json_cmd
+def cmd_tasks_create(client, args):
+    return client.create_scheduled_task( task_name=args.name, prompt=" ".join(args.prompt), schedule={ "start_at": args.start_at, "rrule": args.rrule, "tzid": args.tzid, }, sources=args.sources.split(",") if args.sources else None, model_preference=args.model, )
 
-def cmd_assets_delete(args):
-    if not args.force:
-        ok = input(f"Delete asset {args.asset_id}? [y/N] ")
-        if ok.lower() not in ("y", "yes"):
-            print("Cancelled.")
-            return
-    client = _client()
-    result = client.delete_asset(asset_id=args.asset_id)
-    _print_json(result)
+@_confirm_delete("task", "task_id")
+@_json_cmd
+def cmd_tasks_delete(client, args):
+    return client.delete_scheduled_task(task_id=args.task_id)
 
+@_json_cmd
+def cmd_finance_alert(client, args):
+    return client.create_finance_alert( task_name=args.name, prompt=args.prompt, ticker=args.ticker, event_type=args.event_type, value_upper_bound=args.threshold, model_preference=args.model, )
 
-def cmd_assets_download(args):
-    client = _client()
-    result = client.download_asset(url=args.url, filename=args.filename)
-    _print_json(result)
-
-
-def cmd_settings(args):
-    client = _client()
-    result = client.get_user_settings()
-    _print_json(result)
-
-
-def cmd_spaces_writable(args):
-    client = _client()
-    result = client.list_writable_spaces()
-    _print_json(result)
-
-
-def cmd_sources(args):
-    client = _client()
-    result = client.list_sources()
-    _print_json(result)
-
-
-def cmd_sources_discover(args):
-    client = _client()
-    result = client.discover_sources()
-    _print_json(result)
-
-
-def cmd_billing(args):
-    client = _client()
-    result = client.get_billing_info()
-    _print_json(result)
-
-
-def cmd_tasks_list(args):
-    client = _client()
-    result = client.list_scheduled_tasks()
-    _print_json(result)
-
-
-def cmd_tasks_create(args):
-    client = _client()
-    result = client.create_scheduled_task(
-        task_name=args.name,
-        prompt=" ".join(args.prompt),
-        schedule={
-            "start_at": args.start_at,
-            "rrule": args.rrule,
-            "tzid": args.tzid,
-        },
-        sources=args.sources.split(",") if args.sources else None,
-        model_preference=args.model,
-    )
-    _print_json(result)
-
-
-def cmd_tasks_delete(args):
-    if not args.force:
-        ok = input(f"Delete task {args.task_id}? [y/N] ")
-        if ok.lower() not in ("y", "yes"):
-            print("Cancelled.")
-            return
-    client = _client()
-    result = client.delete_scheduled_task(task_id=args.task_id)
-    _print_json(result)
-
-
-def cmd_finance_alert(args):
-    client = _client()
-    result = client.create_finance_alert(
-        task_name=args.name,
-        prompt=args.prompt,
-        ticker=args.ticker,
-        event_type=args.event_type,
-        value_upper_bound=args.threshold,
-        model_preference=args.model,
-    )
-    _print_json(result)
-
-
-def cmd_finance_quote(args):
-    client = _client()
-    result = client.get_finance_quote(symbol=args.symbol)
-    _print_json(result)
-
+@_json_cmd
+def cmd_finance_quote(client, args):
+    return client.get_finance_quote(symbol=args.symbol)
 
 def cmd_spaces_search(args):
     client = _client()
@@ -593,49 +470,30 @@ def cmd_spaces_search(args):
             print(f"\n[backend_uuid: {data['backend_uuid']}]")
 
 
-def cmd_memories_list(args):
-    client = _client()
-    result = client.list_memories(query=args.search or "", limit=args.limit, offset=args.offset)
-    _print_json(result)
+@_json_cmd
+def cmd_memories_list(client, args):
+    return client.list_memories(query=args.search or "", limit=args.limit, offset=args.offset)
 
+@_json_cmd
+def cmd_memories_get(client, args):
+    return client.get_memory(memory_key=args.key)
 
-def cmd_memories_get(args):
-    client = _client()
-    result = client.get_memory(memory_key=args.key)
-    if result:
-        _print_json(result)
-    else:
-        print("Memory not found.")
+@_confirm_delete("memory", "key")
+@_json_cmd
+def cmd_memories_delete(client, args):
+    return client.delete_memory(memory_key=args.key)
 
+@_json_cmd
+def cmd_tasks(client, args):
+    return client.list_computer_tasks(limit=args.limit, offset=args.offset)
 
-def cmd_memories_delete(args):
-    if not args.force:
-        ok = input(f"Delete memory '{args.key}'? [y/N] ")
-        if ok.lower() not in ("y", "yes"):
-            print("Cancelled.")
-            return
-    client = _client()
-    result = client.delete_memory(memory_key=args.key)
-    _print_json(result)
+@_json_cmd
+def cmd_workflows(client, args):
+    return client.list_workflows()
 
-
-def cmd_tasks(args):
-    client = _client()
-    result = client.list_computer_tasks(limit=args.limit, offset=args.offset)
-    _print_json(result)
-
-
-def cmd_workflows(args):
-    client = _client()
-    result = client.list_workflows()
-    _print_json(result)
-
-
-def cmd_threads_share(args):
-    client = _client()
-    result = client.share_thread(slug=args.slug)
-    _print_json(result)
-
+@_json_cmd
+def cmd_threads_share(client, args):
+    return client.share_thread(slug=args.slug)
 
 def cmd_rate_limits(args):
     client = _client()
@@ -741,23 +599,17 @@ def cmd_status(args):
             print(f"\nUnread notifications: {n.get('count', n)}")
 
 
-def cmd_spaces_pinned_threads(args):
-    client = _client()
-    result = client.get_space_pinned_threads(space_id=args.uuid, include_assets=not args.no_assets)
-    _print_json(result)
+@_json_cmd
+def cmd_spaces_pinned_threads(client, args):
+    return client.get_space_pinned_threads(space_id=args.uuid, include_assets=not args.no_assets)
 
+@_json_cmd
+def cmd_spaces_memory_config(client, args):
+    return client.get_space_memory_config(space_id=args.uuid)
 
-def cmd_spaces_memory_config(args):
-    client = _client()
-    result = client.get_space_memory_config(space_id=args.uuid)
-    _print_json(result)
-
-
-def cmd_tasks_recurring(args):
-    client = _client()
-    result = client.list_recurring_tasks()
-    _print_json(result)
-
+@_json_cmd
+def cmd_tasks_recurring(client, args):
+    return client.list_recurring_tasks()
 
 def build_parser():
     p = argparse.ArgumentParser(

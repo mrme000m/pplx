@@ -22,6 +22,7 @@ from curl_cffi import requests
 # ---------------------------------------------------------------------------
 
 _MULTIPART_BOUNDARY = "----pplxBoundary7MA4YWxkTrZu0gW"
+_BASE_URL = "https://www.perplexity.ai"
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ class PerplexityClient:
         self._valid_models = {}
 
         # Warmup / verify session
-        resp = self.session.get("https://www.perplexity.ai/api/auth/session")
+        resp = self._get(r"/api/auth/session")
         if resp.status_code == 200:
             data = resp.json()
             user = data.get("user", {})
@@ -131,14 +132,41 @@ class PerplexityClient:
             self._fallback_models()
 
     # ------------------------------------------------------------------
+    # Request helpers
+    # ------------------------------------------------------------------
+
+    def _url(self, path: str) -> str:
+        """Build a full URL from a path."""
+        return f"{_BASE_URL}{path}"
+
+    def _get(self, path: str, **kwargs):
+        """Make a GET request and return the Response object."""
+        resp = self.session.get(self._url(path), **kwargs)
+        resp.raise_for_status()
+        return resp
+
+    def _post(self, path: str, **kwargs):
+        """Make a POST request and return the Response object."""
+        resp = self.session.post(self._url(path), **kwargs)
+        resp.raise_for_status()
+        return resp
+
+    def _get_json(self, path: str, **kwargs) -> dict:
+        """Make a GET request and return parsed JSON."""
+        return self._get(path, **kwargs).json()
+
+    def _post_json(self, path: str, **kwargs) -> dict:
+        """Make a POST request and return parsed JSON."""
+        return self._post(path, **kwargs).json()
+
+    # ------------------------------------------------------------------
     # Dynamic Model Loading
     # ------------------------------------------------------------------
 
     def _load_models_config(self):
         """Fetch available models from Perplexity's models/config endpoint."""
         try:
-            resp = self.session.get(
-                "https://www.perplexity.ai/rest/models/config",
+            resp = self._get(r"/rest/models/config",
                 params={"config_schema": "v1", "version": "2.18", "source": "default"},
                 timeout=10,
             )
@@ -342,8 +370,7 @@ class PerplexityClient:
         return {"query_str": query, "params": params}
 
     def _execute(self, payload, stream=False):
-        resp = self.session.post(
-            "https://www.perplexity.ai/rest/sse/perplexity_ask",
+        resp = self._post(r"/rest/sse/perplexity_ask",
             json=payload,
             stream=True,
             timeout=120,
@@ -759,8 +786,7 @@ class PerplexityClient:
         }
 
         # Step 1: Get pre-signed S3 URL
-        url_req = self.session.post(
-            "https://www.perplexity.ai/rest/file-repository/get-file-upload-urls?version=2.18&source=default",
+        url_req = self._post(r"/rest/file-repository/get-file-upload-urls?version=2.18&source=default",
             json={
                 "file_upload_params": [
                     {"filename": filename, "content_type": content_type, "file_size": file_size}
@@ -795,8 +821,7 @@ class PerplexityClient:
             raise RuntimeError(f"S3 upload failed: {e}") from e
 
         # Step 3: Trigger indexing via SSE
-        index_resp = self.session.post(
-            "https://www.perplexity.ai/rest/sse/index_files",
+        index_resp = self._post(r"/rest/sse/index_files",
             json={
                 "file_repository_info": repo_info,
                 "file_index_params": [
@@ -835,8 +860,7 @@ class PerplexityClient:
         Returns:
             API response dict.
         """
-        resp = self.session.post(
-            "https://www.perplexity.ai/rest/collections/focused_web_config/links?version=2.18&source=default",
+        resp = self._post(r"/rest/collections/focused_web_config/links?version=2.18&source=default",
             json={"collection_uuid": uuid, "link": link},
         )
         resp.raise_for_status()
@@ -875,8 +899,7 @@ class PerplexityClient:
     def get_space_by_uuid(self, uuid):
         """Get space detail by UUID (not slug)."""
         # Spaces v2 listing includes UUIDs and slugs
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/collections/list_user_collections",
+        resp = self._get(r"/rest/collections/list_user_collections",
             params={"limit": 100, "version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -891,8 +914,7 @@ class PerplexityClient:
 
     def get_credits_balance(self):
         """Get current credits balance and billing info."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/billing/credits/balance",
+        resp = self._get(r"/rest/billing/credits/balance",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -904,8 +926,7 @@ class PerplexityClient:
 
     def list_recent_spaces(self):
         """List recently accessed spaces."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/collections/list_recent",
+        resp = self._get(r"/rest/collections/list_recent",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -936,8 +957,7 @@ class PerplexityClient:
             fields={"scope": "collection", "scope_id": uuid},
             files=[{"name": "file", "filename": filename, "content_type": content_type, "data": file_content}],
         )
-        resp = self.session.post(
-            "https://www.perplexity.ai/rest/skills",
+        resp = self._post(r"/rest/skills",
             data=body,
             headers={"Content-Type": f"multipart/form-data; boundary={_MULTIPART_BOUNDARY}"},
         )
@@ -946,8 +966,7 @@ class PerplexityClient:
 
     def list_space_skills(self, uuid, limit=20):
         """List skills attached to a Space."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/skills",
+        resp = self._get(r"/rest/skills",
             params={
                 "scope": "collection",
                 "scope_id": uuid,
@@ -991,8 +1010,7 @@ class PerplexityClient:
 
     def list_writable_spaces(self):
         """List spaces the user can write to."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/spaces/writable",
+        resp = self._get(r"/rest/spaces/writable",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1004,8 +1022,7 @@ class PerplexityClient:
 
     def list_sources(self):
         """List available data sources (Google Drive, Gmail, etc.)."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/sources",
+        resp = self._get(r"/rest/sources",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1013,8 +1030,7 @@ class PerplexityClient:
 
     def discover_sources(self):
         """Discover available source connectors by category."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/sources/discover",
+        resp = self._get(r"/rest/sources/discover",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1026,8 +1042,7 @@ class PerplexityClient:
 
     def get_billing_info(self):
         """Get Stripe subscription and billing info."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/stripe/subscription-billing-info",
+        resp = self._get(r"/rest/stripe/subscription-billing-info",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1035,8 +1050,7 @@ class PerplexityClient:
 
     def get_asi_access(self):
         """Check if user has ASI (Computer) feature access and org credits."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/billing/asi-access-decision",
+        resp = self._get(r"/rest/billing/asi-access-decision",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1048,8 +1062,7 @@ class PerplexityClient:
 
     def list_scheduled_tasks(self):
         """List all scheduled tasks and alerts."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/tasks/",
+        resp = self._get(r"/rest/tasks/",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1073,8 +1086,7 @@ class PerplexityClient:
             sources = ["web"]
         if notifications is None:
             notifications = {"should_send_email": True, "should_send_in_app": True, "should_send_push": True}
-        resp = self.session.post(
-            "https://www.perplexity.ai/rest/tasks/",
+        resp = self._post(r"/rest/tasks/",
             json={
                 "task_name": task_name,
                 "prompt": prompt,
@@ -1115,8 +1127,7 @@ class PerplexityClient:
         Returns:
             Dict with status and task_id.
         """
-        resp = self.session.post(
-            "https://www.perplexity.ai/rest/tasks/finance",
+        resp = self._post(r"/rest/tasks/finance",
             json={
                 "task_name": task_name,
                 "prompt": prompt,
@@ -1169,8 +1180,7 @@ class PerplexityClient:
             "GENERATED_IMAGE,GENERATED_VIDEO,APP,SLIDES,AUDIO_FILE,"
             "MODEL_3D,CHART,CODE_FILE"
         )
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/assets/",
+        resp = self._get(r"/rest/assets/",
             params={
                 "asset_type": asset_types,
                 "limit": limit,
@@ -1184,8 +1194,7 @@ class PerplexityClient:
 
     def list_pinned_assets(self, limit=50):
         """List pinned assets."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/assets/pins",
+        resp = self._get(r"/rest/assets/pins",
             params={"limit": limit, "version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1193,8 +1202,7 @@ class PerplexityClient:
 
     def list_shared_assets(self, limit=40):
         """List assets shared with the user."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/assets/shared-with-me",
+        resp = self._get(r"/rest/assets/shared-with-me",
             params={"limit": limit, "version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1202,8 +1210,7 @@ class PerplexityClient:
 
     def pin_asset(self, asset_id):
         """Pin an asset for quick access."""
-        resp = self.session.post(
-            "https://www.perplexity.ai/rest/assets/pins",
+        resp = self._post(r"/rest/assets/pins",
             json={"asset_id": asset_id},
             params={"version": "2.18", "source": "default"},
         )
@@ -1245,8 +1252,7 @@ class PerplexityClient:
         Returns:
             Dict with signed download URL.
         """
-        resp = self.session.post(
-            "https://www.perplexity.ai/rest/deeper-research/download-asset",
+        resp = self._post(r"/rest/deeper-research/download-asset",
             json={"url": url, "filename": filename},
             params={"version": "2.18", "source": "default"},
         )
@@ -1293,19 +1299,16 @@ class PerplexityClient:
         params = {"limit": limit, "offset": offset, "version": "2.18", "source": "default"}
         if category:
             params["category"] = category
-        resp = self.session.get("https://www.perplexity.ai/rest/discover/feed", params=params)
-        resp.raise_for_status()
+        resp = self._get(r"/rest/discover/feed", params=params)
         return resp.json()
 
     def get_profile(self):
-        resp = self.session.get("https://www.perplexity.ai/api/user")
-        resp.raise_for_status()
+        resp = self._get(r"/api/user")
         return resp.json()
 
     def get_user_info(self):
         """Get basic user info (enterprise/student status, home host, etc.)."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/user/info",
+        resp = self._get(r"/rest/user/info",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1313,8 +1316,7 @@ class PerplexityClient:
 
     def get_ai_profile(self):
         """Get user's AI profile (location, language, occupation, bio)."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/user/get_user_ai_profile",
+        resp = self._get(r"/rest/user/get_user_ai_profile",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1326,8 +1328,7 @@ class PerplexityClient:
 
     def get_rate_limit_status(self):
         """Get current rate-limit status (free queries, pro, research, labs)."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/rate-limit/status",
+        resp = self._get(r"/rest/rate-limit/status",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1335,8 +1336,7 @@ class PerplexityClient:
 
     def get_notification_count(self):
         """Get count of unread in-app notifications."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/notifications/in-app/unread-count",
+        resp = self._get(r"/rest/notifications/in-app/unread-count",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1348,8 +1348,7 @@ class PerplexityClient:
 
     def get_user_settings(self):
         """Get current user account settings and limits."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/user/settings",
+        resp = self._get(r"/rest/user/settings",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1361,8 +1360,7 @@ class PerplexityClient:
 
     def list_memories(self, query="", limit=20, offset=0):
         """List user memories with optional search filter."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/memories/list",
+        resp = self._get(r"/rest/memories/list",
             params={"limit": limit, "offset": offset, "query": query, "version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1377,8 +1375,7 @@ class PerplexityClient:
         """
         # Try fuzzy search first (faster for most cases)
         search_term = memory_key.split(".")[-1]
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/memories/list",
+        resp = self._get(r"/rest/memories/list",
             params={"limit": 20, "offset": 0, "query": search_term, "version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1389,8 +1386,7 @@ class PerplexityClient:
         
         # Fallback: list all memories and filter client-side
         # This handles cases where fuzzy search doesn't find the exact key
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/memories/list",
+        resp = self._get(r"/rest/memories/list",
             params={"limit": 200, "offset": 0, "query": "", "version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1424,8 +1420,7 @@ class PerplexityClient:
 
     def list_tasks(self, limit=20):
         """List computer tasks (ASI workflows)."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/tasks",
+        resp = self._get(r"/rest/tasks",
             params={"limit": limit, "version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1454,8 +1449,7 @@ class PerplexityClient:
 
     def list_recurring_tasks(self):
         """List recurring task threads."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/thread/recurring_tasks",
+        resp = self._get(r"/rest/thread/recurring_tasks",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
@@ -1463,8 +1457,7 @@ class PerplexityClient:
 
     def list_workflows(self):
         """List available workflows."""
-        resp = self.session.get(
-            "https://www.perplexity.ai/rest/workflows",
+        resp = self._get(r"/rest/workflows",
             params={"version": "2.18", "source": "default"},
         )
         resp.raise_for_status()
