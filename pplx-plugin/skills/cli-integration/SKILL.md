@@ -1,6 +1,8 @@
 ---
 name: cli-integration
-description: This skill should be used when the user asks to "use pplx CLI", "run Perplexity from shell", "MCP is down", "OpenCode Perplexity", "Codex Perplexity", "batch upload to Space", "check Perplexity auth", "BWS cookies", or when Perplexity access is needed through shell commands, non-Claude harnesses, or BWS cookie diagnostics.
+description: |
+  This skill should be used when the user asks to "use pplx CLI", "run Perplexity from shell", "MCP is down", "OpenCode Perplexity", "Codex Perplexity", "batch upload to Space", "check Perplexity auth", "BWS cookies", or when Perplexity access is needed through shell commands, non-Claude harnesses, or BWS cookie diagnostics.
+  Also trigger when the user mentions running Perplexity commands in terminal, shell scripts for Perplexity, pplx executable, or any non-MCP Perplexity workflow.
 version: 1.1.0
 ---
 
@@ -62,6 +64,24 @@ pplx status --raw
 - Use `--raw` only when machine parsing is needed.
 - Do not run live searches in startup checks.
 - Store only `backend_uuid`, slugs, and concise summaries in the conversation.
+
+## Examples
+
+**MCP unavailable, need a quick search:**
+```bash
+pplx search "React 19 use hook API" --mode auto
+```
+
+**Batch upload project docs to a Space:**
+```bash
+bash <plugin>/scripts/pplx-upload.sh my-project-api README.md
+bash <plugin>/scripts/pplx-upload.sh my-project-api architecture.md
+```
+
+**Check auth without making live searches:**
+```bash
+bash <plugin>/scripts/pplx-health.sh --verbose --no-search
+```
 
 ## Authentication Guidance
 

@@ -1,6 +1,8 @@
 ---
 name: perplexity-settings
-description: This skill should be used when the user asks to "Perplexity settings", "pplx status", "credits", "rate limits", "memories", "workflows", "models", "auth check", "BWS_ACCESS_TOKEN", "perplexity-cookies", or when auditing Perplexity account/client state, BWS cookie loading, dynamic models, or plugin setup.
+description: |
+  This skill should be used when the user asks to "Perplexity settings", "pplx status", "credits", "rate limits", "memories", "workflows", "models", "auth check", "BWS_ACCESS_TOKEN", "perplexity-cookies", or when auditing Perplexity account/client state, BWS cookie loading, dynamic models, or plugin setup.
+  Also trigger when the user asks about their Perplexity account, subscription status, available AI models, or needs to verify their authentication and cookie configuration.
 version: 1.1.0
 ---
 
@@ -59,6 +61,27 @@ Summarize, do not dump raw JSON. Include:
 - recommended cleanup or setup actions
 
 Ask before deleting memories, tasks, Spaces, or files.
+
+## Example Audit Workflow
+
+**Quick health check (no live search):**
+```bash
+bash <plugin>/scripts/pplx-health.sh --verbose --no-search
+```
+
+**Check all account state:**
+```bash
+pplx status --raw
+pplx models --raw
+pplx rate-limits --raw
+pplx credits
+```
+
+**Review and clean up memories:**
+```bash
+pplx memories list --limit 50
+# Ask before deleting: pplx memories delete <key>
+```
 
 ## Space Audit Notes
 

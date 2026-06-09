@@ -1,6 +1,8 @@
 ---
 name: dependency-grounding
-description: This skill should be used when implementing or reviewing code with external dependencies whose syntax may have changed, when the user asks to "verify docs", "latest API", "breaking changes", "is this pattern current", or when dependency manifests are edited, package upgrades occur, or unfamiliar imports are detected.
+description: |
+  This skill should be used when implementing or reviewing code with external dependencies whose syntax may have changed, when the user asks to "verify docs", "latest API", "breaking changes", "is this pattern current", or when dependency manifests are edited, package upgrades occur, or unfamiliar imports are detected.
+  Also trigger when the user mentions upgrading packages, version bumps, deprecated APIs, migration guides, or when they edit package.json, requirements.txt, pyproject.toml, Cargo.toml, or similar dependency files.
 version: 1.1.0
 ---
 
@@ -34,6 +36,18 @@ Status: CONFIRMED | CHANGED | DEPRECATED | UNCERTAIN
 Package/API: <name> <version>
 Finding: <concise grounded answer>
 Action: <what to change or verify next>
+```
+
+## Examples
+
+**Verify after a package upgrade:**
+```bash
+pplx search "React 19 useContext performance changes breaking" --mode auto
+```
+
+**Check unfamiliar dependency:**
+```bash
+pplx search "zustand 5.0 middleware API current docs" --mode auto
 ```
 
 ## CLI Fallback

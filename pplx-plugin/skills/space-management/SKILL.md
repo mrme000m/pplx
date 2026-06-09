@@ -1,6 +1,8 @@
 ---
 name: space-management
-description: This skill should be used when the user asks to "Perplexity Space", "knowledge base", "upload docs", "search in Space", "organize Space", or "project docs Space", or when creating, auditing, searching, or maintaining Perplexity Spaces, uploading project docs, building knowledge bases, or managing Space files, links, or custom skills.
+description: |
+  This skill should be used when the user asks to "Perplexity Space", "knowledge base", "upload docs", "search in Space", "organize Space", or "project docs Space", or when creating, auditing, searching, or maintaining Perplexity Spaces, uploading project docs, building knowledge bases, or managing Space files, links, or custom skills.
+  Also trigger when the user wants to set up a project knowledge base, organize uploaded files, or scope Perplexity searches to a specific collection.
 version: 1.1.0
 ---
 
@@ -43,6 +45,27 @@ pplx spaces create --title "..." --description "..." --instructions "..."
 pplx spaces files <uuid>
 pplx spaces upload <uuid> <file>
 pplx spaces search <uuid> "query"
+```
+
+## Examples
+
+**Create a project knowledge base:**
+```bash
+pplx spaces create --title "Project API Docs" \
+  --description "Backend API documentation and schemas" \
+  --instructions "Answer using uploaded API specs first. Fall back to web for framework docs."
+```
+
+**Upload and verify files:**
+```bash
+pplx spaces upload <space-uuid> api/openapi.yaml
+pplx spaces upload <space-uuid> api/schemas.json
+pplx spaces upload-status <space-uuid>
+```
+
+**Search within a Space:**
+```bash
+pplx spaces search <space-uuid> "auth flow" --mode auto
 ```
 
 See references/space-patterns.md for naming and audit patterns.
