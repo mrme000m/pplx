@@ -4,17 +4,41 @@ Perplexity AI command-line interface with **Bitwarden vault authentication** and
 
 No cookie files on disk — credentials are pulled directly from your Bitwarden vault at runtime. Models are fetched dynamically from Perplexity's API, so you always see the latest available options.
 
+## Quick Install
+
+### macOS / Linux (one-liner)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mrme000m/pplx/main/install.sh | bash
+```
+
+Or with a custom install directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mrme000m/pplx/main/install.sh | bash -s -- --dev-dir ~/projects
+```
+
+### Windows (PowerShell)
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "Invoke-Expression (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/mrme000m/pplx/main/install/windows.ps1').Content"
+```
+
+### Manual Install
+
+```bash
+git clone https://github.com/mrme000m/pplx.git
+cd pplx
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
+pip install -e .
+pip install curl-cffi bitwarden-sdk python-dotenv
+```
+
 ## Prerequisites
 
 - [Bitwarden CLI](https://bitwarden.com/help/article/cli/) (`bw`)
 - A secure note in Bitwarden named exactly `perplexity.ai` containing your Perplexity cookies as JSON
-
-## Installation
-
-```bash
-cd /Volumes/ExMac/code/MCP/pplx
-pip install -e .
-```
 
 ## Bitwarden Setup
 
