@@ -11,40 +11,226 @@ Supports:
   - Fallback to Bitwarden for app password retrieval
 
 Usage:
-  python3 extract_otp.py \
-      --email vb.mrme00@gmail.com \
+  python3 extract_otp.py \\
+      --email vb.mrme00@gmail.com \\
       --app-password "fqoi ycoa zwvg mpsq"
 
-  python3 extract_otp.py \
-      --email vb.mrme00@gmail.com \
-      --forward-to mrme000.m0@gmail.com \
+  python3 extract_otp.py \\
+      --email vb.mrme00@gmail.com \\
+      --forward-to mrme000.m0@gmail.com \\
       --bw-item "myaccount.google.com"
 
 Output (JSON):
-  {"otp": "873106", "sender": "team@mail.perplexity.ai", "subject": "Sign in to Perplexity"}
+  {"otp": "873106", "url": "https://www.perplexity.ai/api/auth/callback/email?...", "sender": "team@mail.perplexity.ai", "subject": "Sign in to Perplexity"}
 """
 
 from __future__ import annotations
 
 import argparse
+import email
+import imaplib
 import json
 import os
+import re
+import subprocess
 import sys
-from pathlib import Path
+import time
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-# Allow running standalone: fix up import path if needed
-if __name__ == "__main__":
-    _script_dir = Path(__file__).resolve().parent
-    _skills_dir = _script_dir.parent.parent
-    sys.path.insert(0, str(_skills_dir))
 
-from scripts.auth.otp_utils import (  # noqa: E402
-    fetch_otp,
-    get_app_password_from_bw,
-    get_email_from_bw,
-    poll_for_otp,
-)
+# ─── Bitwarden integration ───────────────────────────────────────────────────
 
+def _bw(cmd: list[str]) -> str:
+    """Run bw command with unlocked session."""
+    try:
+        bw_pass = subprocess.run(
+            ["security", "find-generic-password", "-a", "bw-master-password", "-w"],
+            capture_output=True, text=True
+        ).stdout.strip()
+
+        if not bw_pass:
+            raise RuntimeError("Could not get bw master password from Keychain")
+
+        session = subprocess.run(
+            ["bw", "unlock", "--passwordenv", "BW_PASSWORD", "--raw"],
+            env={**os.environ, "BW_PASSWORD": bw_pass},
+            capture_output=True, text=True
+        ).stdout.strip()
+
+        if not session:
+            raise RuntimeError("Could not unlock Bitwarden vault")
+
+        result = subprocess.run(
+            ["bw", *cmd],
+            env={**os.environ, "BW_SESSION": session},
+            capture_output=True, text=True
+        )
+        return result.stdout.strip()
+    except Exception as e:
+        print(f"Bitwarden error: {e}", file=sys.stderr)
+        return ""
+
+
+def get_app_password_from_bw(item_name: str, field_name: str = "gmail") -> Optional[str]:
+    """Get app password from a Bitwarden login item's custom field."""
+    raw = _bw(["get", "item", item_name])
+    if not raw:
+        return None
+    try:
+        item = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+    for field in item.get("fields", []):
+        if field.get("name") == field_name:
+            return field.get("value")
+    return None
+
+
+def get_email_from_bw(item_name: str) -> Optional[str]:
+    """Get email/username from a Bitwarden login item."""
+    raw = _bw(["get", "item", item_name])
+    if not raw:
+        return None
+    try:
+        item = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return item.get("login", {}).get("username")
+
+
+def parse_email_date(date_str: str) -> Optional[datetime]:
+    """Parse an email Date header into an aware datetime."""
+    if not date_str:
+        return None
+    for fmt in [
+        "%a, %d %b %Y %H:%M:%S %z",
+        "%d %b %Y %H:%M:%S %z",
+        "%a, %d %b %Y %H:%M:%S %Z",
+        "%d %b %Y %H:%M:%S %Z",
+    ]:
+        try:
+            return datetime.strptime(date_str.strip(), fmt)
+        except ValueError:
+            pass
+    return None
+
+
+# ─── IMAP OTP extraction ─────────────────────────────────────────────────────
+
+def fetch_otp(
+    email_addr: str,
+    app_password: str,
+    imap_server: str = "imap.gmail.com",
+    lookback_minutes: int = 15,
+    since: Optional[float] = None,
+) -> Optional[dict]:
+    """
+    Check inbox for a Perplexity sign-in email and extract the 6-digit token.
+    Only returns emails received after `since` (unix timestamp) if provided.
+    When multiple emails match, returns the one with the latest Date header.
+
+    Returns dict with otp, url, sender, subject, or None if not found.
+    """
+    try:
+        mail = imaplib.IMAP4_SSL(imap_server)
+        mail.login(email_addr, app_password)
+        mail.select("INBOX")
+
+        # Search for recent Perplexity sign-in emails
+        since_date = (datetime.now() - timedelta(minutes=lookback_minutes)).strftime("%d-%b-%Y")
+        status, messages = mail.search(None, f'(FROM "team@mail.perplexity.ai" SINCE "{since_date}")')
+        ids = messages[0].split()
+
+        if not ids:
+            # Fallback: broader search
+            status, messages = mail.search(None, f'(SUBJECT "Sign in to Perplexity" SINCE "{since_date}")')
+            ids = messages[0].split()
+
+        if not ids:
+            return None
+
+        since_dt = datetime.fromtimestamp(since, tz=timezone.utc) if since else None
+        best_match = None
+        best_date = None
+
+        # Scan ALL matching emails and return the LATEST one (by Date header).
+        # We process in ascending order but compare dates to find the newest.
+        for mid in ids:
+            status, msg_data = mail.fetch(mid, "(RFC822)")
+            if status != "OK":
+                continue
+
+            raw_email = msg_data[0][1]
+            msg = email.message_from_bytes(raw_email)
+
+            subject = msg.get("Subject", "")
+            sender = msg.get("From", "")
+            date_hdr = msg.get("Date", "")
+            email_dt = parse_email_date(date_hdr)
+
+            # Skip emails older than `since`
+            if since_dt and email_dt and email_dt < since_dt:
+                continue
+
+            # Extract body
+            body = ""
+            for part in msg.walk():
+                ct = part.get_content_type()
+                if ct in ("text/plain", "text/html"):
+                    try:
+                        charset = part.get_content_charset() or "utf-8"
+                        body = part.get_payload(decode=True).decode(charset, errors="replace")
+                    except Exception:
+                        pass
+                    if ct == "text/plain":
+                        break
+
+            # Look for token in callback URL
+            # Pattern: ...&token=123456 or token%3D123456
+            token_match = re.search(r"[&?]token[=%]3?[Dd]?(\d{6})", body)
+            if token_match:
+                url_match = re.search(r"(https?://[^\s\"<>\]\)]*\btoken[=%]3?[Dd]?\d{6})", body)
+                candidate = {
+                    "otp": token_match.group(1),
+                    "url": url_match.group(1) if url_match else "",
+                    "sender": sender,
+                    "subject": subject.strip(),
+                }
+                if email_dt and (best_date is None or email_dt > best_date):
+                    best_date = email_dt
+                    best_match = candidate
+                continue
+
+            # Fallback: any 6-digit code in body
+            codes = re.findall(r"\b(\d{6})\b", body)
+            if codes:
+                from collections import Counter
+                counts = Counter(codes)
+                best = counts.most_common(1)[0][0]
+                url_match = re.search(r"(https?://[^\s\"<>\]\)]*\btoken[=%]3?[Dd]?\d{6})", body)
+                candidate = {
+                    "otp": best,
+                    "url": url_match.group(1) if url_match else "",
+                    "sender": sender,
+                    "subject": subject.strip(),
+                }
+                if email_dt and (best_date is None or email_dt > best_date):
+                    best_date = email_dt
+                    best_match = candidate
+                continue
+
+        mail.logout()
+        return best_match
+
+    except imaplib.IMAP4.error as e:
+        raise RuntimeError(f"IMAP login failed: {e}") from e
+    except Exception as e:
+        raise RuntimeError(f"IMAP error: {e}") from e
+
+
+# ─── CLI ─────────────────────────────────────────────────────────────────────
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -53,12 +239,14 @@ def main() -> int:
     parser.add_argument("--email", help="Gmail address to check (the Perplexity login email)")
     parser.add_argument("--app-password", help="Gmail app password")
     parser.add_argument("--forward-to", help="If email forwards to another inbox, check this one")
-    parser.add_argument("--bw-item", default="perplexity-login",
-                        help="Bitwarden item name for credentials (default: perplexity-login)")
+    parser.add_argument("--bw-item", default="myaccount.google.com",
+                        help="Bitwarden item name for credentials (default: myaccount.google.com)")
     parser.add_argument("--bw-field", default="gmail",
                         help="Bitwarden custom field name for app password (default: gmail)")
     parser.add_argument("--lookback", type=int, default=15,
                         help="Minutes to look back for OTP email (default: 15)")
+    parser.add_argument("--since", type=float, default=None,
+                        help="Unix timestamp; only accept emails received after this time")
     parser.add_argument("--timeout", type=int, default=120,
                         help="Seconds to keep polling for OTP (default: 120)")
     parser.add_argument("--poll-interval", type=int, default=5,
@@ -85,31 +273,25 @@ def main() -> int:
                     print(f"Got app password from Bitwarden", file=sys.stderr)
 
     if not email_addr:
-        print(json.dumps({"error": "No email address provided", "otp": None}))
+        print(json.dumps({"error": "No email address provided", "otp": None}), file=sys.stderr)
         return 1
     if not app_password:
-        print(json.dumps({"error": "No app password provided", "otp": None}))
+        print(json.dumps({"error": "No app password provided", "otp": None}), file=sys.stderr)
         return 1
 
-    print(f"Polling Gmail for OTP (timeout={args.timeout}s)...", file=sys.stderr)
+    # Poll for OTP
+    deadline = time.time() + args.timeout
 
-    otp = poll_for_otp(
-        email_addr=email_addr,
-        app_password=app_password,
-        timeout=args.timeout,
-        poll_interval=args.poll_interval,
-        lookback_minutes=args.lookback,
-    )
+    while time.time() < deadline:
+        try:
+            result = fetch_otp(email_addr, app_password, lookback_minutes=args.lookback, since=args.since)
+            if result:
+                print(json.dumps(result))
+                return 0
+        except Exception as e:
+            print(f"Poll error: {e}", file=sys.stderr)
 
-    if otp:
-        # Re-fetch full result for JSON output
-        result = fetch_otp(email_addr, app_password, lookback_minutes=args.lookback)
-        if result:
-            print(json.dumps(result))
-        else:
-            print(json.dumps({"otp": otp, "sender": "team@mail.perplexity.ai",
-                             "subject": "Sign in to Perplexity"}))
-        return 0
+        time.sleep(args.poll_interval)
 
     print(json.dumps({"error": "OTP not found within timeout", "otp": None}))
     return 1

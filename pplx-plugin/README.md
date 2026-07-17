@@ -1,6 +1,6 @@
 # pplx-plugin
 
-Marketplace-ready Perplexity AI toolkit for Claude Code, OpenCode, Codex, and shell-native agent harnesses.
+Marketplace-ready Perplexity AI toolkit for Claude Code, Qwen Code, OpenCode, Codex, and shell-native agent harnesses.
 
 **Version:** 1.2.0
 
@@ -38,6 +38,104 @@ scripts/                     # portable helpers for any shell-capable harness
 - Preferred auth: `BWS_ACCESS_TOKEN` for Bitwarden Secrets Manager project `pplx`, secret `perplexity-cookies`
 - Optional fallback: Bitwarden CLI (`bw`) Secure Note named `perplexity.ai`
 - Optional: `jq` for richer shell diagnostics
+
+## Qwen Code
+
+For Qwen Code, the plugin is exposed as an MCP server plus personal skills:
+
+1. Ensure the pplx package is installed in `/Volumes/ExMac/code/MCP/pplx`:
+   ```bash
+   cd /Volumes/ExMac/code/MCP/pplx
+   python3 -m pip install -e .
+   ```
+2. The MCP server entry point is `/Volumes/ExMac/code/MCP/pplx/pplx_mcp_server.py`.
+3. Add to your Qwen Code `settings.json` (`~/.qwen/settings.json` or project `.qwen/settings.json`):
+   ```json
+   {
+     "mcpServers": {
+       "pplx": {
+         "command": "/Volumes/ExMac/code/MCP/pplx/.venv/bin/python",
+         "args": ["/Volumes/ExMac/code/MCP/pplx/pplx_mcp_server.py"],
+         "env": {
+           "BWS_ACCESS_TOKEN": "${BWS_ACCESS_TOKEN}",
+           "PERPLEXITY_COOKIES_PATH": "${PERPLEXITY_COOKIES_PATH}"
+         },
+         "timeout": 600000
+       }
+     }
+   }
+   ```
+4. Optionally link the plugin skills into your personal skills directory:
+   ```bash
+   mkdir -p ~/.qwen/skills
+   for d in /Volumes/ExMac/code/MCP/pplx/pplx-plugin/skills/*/; do
+     ln -s "$d" ~/.qwen/skills/pplx-$(basename "$d")
+   done
+   ```
+5. Restart Qwen Code. Verify the server with `/mcp` or `qwen mcp list`.
+
+### Available MCP tools
+
+| Tool | Purpose |
+|---|---|
+| `pplx_search` | Grounded web/Space search with mode selection |
+| `pplx_list_models` | List available Perplexity models |
+| `pplx_list_threads` | List recent threads |
+| `pplx_list_spaces` | List Spaces |
+| `pplx_search_space` | Search inside a Space by UUID |
+
+---
+
+## OpenCode
+
+For OpenCode, the plugin works as both skills and an MCP server.
+
+### Skills path (optional)
+Add the plugin directory to your `opencode.json`:
+
+```json
+{
+  "skills": {
+    "paths": [
+      "/Volumes/ExMac/code/MCP/pplx/pplx-plugin"
+    ]
+  }
+}
+```
+
+### MCP server (recommended)
+Add to `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "mcp": {
+    "pplx": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "/Volumes/ExMac/code/MCP/pplx/.venv/bin/python",
+        "/Volumes/ExMac/code/MCP/pplx/pplx_mcp_server.py"
+      ],
+      "cwd": "/Volumes/ExMac/code/MCP/pplx",
+      "environment": {
+        "BWS_ACCESS_TOKEN": "${BWS_ACCESS_TOKEN}",
+        "PERPLEXITY_COOKIES_PATH": "${PERPLEXITY_COOKIES_PATH}"
+      },
+      "timeout": 600000
+    }
+  }
+}
+```
+
+Then add to your `AGENTS.md`:
+
+```markdown
+When you need current information from the web, use the `pplx` MCP server instead of the built-in `webfetch` tool.
+```
+
+Restart OpenCode and verify with `opencode mcp list`.
+
+---
 
 ## Cookie/Auth Setup
 
@@ -91,7 +189,7 @@ export PPLX_REPO_DIR=/path/to/pplx-sdk
 
 ## Agent Harness Usage
 
-Load the plugin directory with your agent harness plugin mechanism (Claude Code, OpenCode, Codex, etc.), then use:
+Load the plugin directory with your agent harness plugin mechanism (Claude Code, Qwen Code, OpenCode, Codex, etc.), then use:
 
 | Command | Purpose |
 |---|---|

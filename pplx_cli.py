@@ -156,6 +156,14 @@ def cmd_refresh_cookies(args):
     sys.exit(result.returncode)
 
 
+def cmd_validate(args):
+    """Check if the current Perplexity session is valid."""
+    client = _client()
+    result = client.validate_session()
+    _print_json(result)
+    sys.exit(0 if result.get("valid") else 1)
+
+
 def cmd_search(args):
     client = _client()
     result = client.search(
@@ -1010,6 +1018,13 @@ def build_parser():
         help="Run CloakBrowser in headless mode (no GUI window)"
     )
     rc.set_defaults(func=cmd_refresh_cookies)
+
+    # validate
+    val = sub.add_parser(
+        "validate",
+        help="Check if the current Perplexity session is still valid"
+    )
+    val.set_defaults(func=cmd_validate)
 
     return p
 

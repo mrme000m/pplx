@@ -252,7 +252,7 @@ ln -s /path/to/pplx/pplx-plugin ~/.claude/plugins/pplx-plugin
 
 **Auto-install:** The installer detects `opencode` in PATH and adds the plugin to `skills.paths`.
 
-**Manual:**
+**Skills (manual):**
 Add to your `~/.config/opencode/opencode.json` or project `.opencode/opencode.json`:
 
 ```json
@@ -267,6 +267,46 @@ Add to your `~/.config/opencode/opencode.json` or project `.opencode/opencode.js
 
 Commands from `pplx-plugin/commands/` are auto-loaded as slash commands.
 
+**MCP server (recommended):**
+Add the pplx MCP server to `opencode.json` so OpenCode can call Perplexity as a tool:
+
+```json
+{
+  "mcp": {
+    "pplx": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "/path/to/pplx/.venv/bin/python",
+        "/path/to/pplx/pplx_mcp_server.py"
+      ],
+      "cwd": "/path/to/pplx",
+      "environment": {
+        "BWS_ACCESS_TOKEN": "${BWS_ACCESS_TOKEN}",
+        "PERPLEXITY_COOKIES_PATH": "${PERPLEXITY_COOKIES_PATH}"
+      },
+      "timeout": 600000
+    }
+  }
+}
+```
+
+Add to your `AGENTS.md`:
+
+```markdown
+When you need current information from the web, use the `pplx` MCP server instead of the built-in `webfetch` tool.
+```
+
+Optionally set `webfetch` permission to `ask` so pplx is preferred:
+
+```json
+{
+  "permission": {
+    "webfetch": "ask"
+  }
+}
+```
+
 ### Codex (GitHub)
 
 **Auto-install:** The installer detects `codex` in PATH and links plugin scripts.
@@ -278,6 +318,50 @@ export PATH="/path/to/pplx/pplx-plugin/scripts:$PATH"
 export PPLX_REPO_DIR="/path/to/pplx"
 export PPLX_PLUGIN_DIR="/path/to/pplx/pplx-plugin"
 ```
+
+### Qwen Code
+
+**MCP server:** `pplx_mcp_server.py` exposes Perplexity search, models, threads, and Spaces as MCP tools.
+
+**Manual setup:**
+1. Install the pplx package (the MCP dependency is included):
+   ```bash
+   cd /path/to/pplx
+   python3 -m pip install -e .
+   ```
+2. Add to your Qwen Code `settings.json` (`~/.qwen/settings.json` or project `.qwen/settings.json`):
+   ```json
+   {
+     "mcpServers": {
+       "pplx": {
+         "command": "/path/to/pplx/.venv/bin/python",
+         "args": ["/path/to/pplx/pplx_mcp_server.py"],
+         "env": {
+           "BWS_ACCESS_TOKEN": "${BWS_ACCESS_TOKEN}",
+           "PERPLEXITY_COOKIES_PATH": "${PERPLEXITY_COOKIES_PATH}"
+         },
+         "timeout": 600000
+       }
+     }
+   }
+   ```
+3. Optionally link the plugin skills for auto-activation:
+   ```bash
+   mkdir -p ~/.qwen/skills
+   for d in /path/to/pplx/pplx-plugin/skills/*/; do
+     ln -s "$d" ~/.qwen/skills/pplx-$(basename "$d")
+   done
+   ```
+4. Restart Qwen Code. Verify with `/mcp` or `qwen mcp list`.
+
+**Available MCP tools:**
+- `pplx_search` — Grounded web/Space search with mode/model selection
+- `pplx_list_models` — List available Perplexity models
+- `pplx_list_threads` — List recent threads
+- `pplx_list_spaces` — List Spaces
+- `pplx_search_space` — Search inside a Space by UUID
+
+---
 
 ### Generic Shell-Capable Agent
 

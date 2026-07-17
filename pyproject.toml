@@ -13,15 +13,18 @@ dependencies = [
     "curl-cffi>=0.10.0",
     "bitwarden-sdk>=2.0.0",
     "python-dotenv>=1.0.0",
+    "mcp>=1.0.0",
 ]
 
 [project.scripts]
 pplx = "pplx_cli:main"
+pplx-mcp-server = "pplx_mcp_server:main"
 
 [tool.hatch.build]
 include = [
     "pplx/**/*.py",
     "pplx_cli.py",
+    "pplx_mcp_server.py",
 ]
 exclude = [
     ".gitignore",

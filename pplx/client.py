@@ -10,9 +10,12 @@ and deep research.
 import json
 import io
 import mimetypes
+import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from uuid import uuid4
 from curl_cffi import requests
 
@@ -139,17 +142,77 @@ class PerplexityClient:
         """Build a full URL from a path."""
         return f"{_BASE_URL}{path}"
 
-    def _get(self, path: str, **kwargs):
-        """Make a GET request and return the Response object."""
-        resp = self.session.get(self._url(path), **kwargs)
+    # ------------------------------------------------------------------
+    # Auth failure handling — auto-refresh stale cookies once
+    # ------------------------------------------------------------------
+
+    def _is_auth_error(self, resp) -> bool:
+        """Detect session-expired / unauthorized responses."""
+        if resp.status_code in (401, 403):
+            return True
+        # Perplexity sometimes returns 200 with a redirect-to-login body
+        if resp.status_code == 200:
+            try:
+                body = resp.text[:500].lower()
+                if any(k in body for k in ("sign in", "log in", "unauthorized", "session expired")):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    def _refresh_cookies(self) -> dict:
+        """Run the deterministic cookie-refresh pipeline."""
+        refresh_script = Path(__file__).resolve().parent.parent / "scripts" / "refresh_cookies.py"
+        if not refresh_script.exists():
+            raise RuntimeError(
+                "Cookie refresh script not found. "
+                "Run: pplx refresh-cookies   (or ensure scripts/refresh_cookies.py exists)"
+            )
+        result = subprocess.run(
+            [sys.executable, str(refresh_script)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Cookie refresh failed:\n{result.stderr}"
+            )
+        # Reload cookies into the current session
+        from .bw_cookies import load_cookies
+        cookies = load_cookies()
+        self.session.cookies.update(cookies)
+        self._cookies = cookies
+        return cookies
+
+    def _maybe_refresh_and_retry(self, method: str, path: str, **kwargs):
+        """Execute a request; on auth failure refresh cookies and retry once."""
+        url = self._url(path)
+        req = self.session.get if method == "GET" else self.session.post
+        resp = req(url, **kwargs)
+
+        if self._is_auth_error(resp):
+            print("[pplx] Auth error detected — refreshing cookies…", file=sys.stderr)
+            try:
+                self._refresh_cookies()
+            except RuntimeError as refresh_err:
+                raise RuntimeError(
+                    f"Session expired and cookie refresh failed: {refresh_err}\n"
+                    "Run manually:  pplx refresh-cookies"
+                ) from refresh_err
+            # Retry exactly once with new cookies
+            resp = req(url, **kwargs)
+
         resp.raise_for_status()
         return resp
 
+    def _get(self, path: str, **kwargs):
+        """Make a GET request and return the Response object."""
+        return self._maybe_refresh_and_retry("GET", path, **kwargs)
+
     def _post(self, path: str, **kwargs):
         """Make a POST request and return the Response object."""
-        resp = self.session.post(self._url(path), **kwargs)
-        resp.raise_for_status()
-        return resp
+        return self._maybe_refresh_and_retry("POST", path, **kwargs)
 
     def _get_json(self, path: str, **kwargs) -> dict:
         """Make a GET request and return parsed JSON."""
@@ -158,6 +221,34 @@ class PerplexityClient:
     def _post_json(self, path: str, **kwargs) -> dict:
         """Make a POST request and return parsed JSON."""
         return self._post(path, **kwargs).json()
+
+    # ------------------------------------------------------------------
+    # Session validation — proactive health check
+    # ------------------------------------------------------------------
+
+    def validate_session(self) -> dict:
+        """Quickly verify the current session is still valid.
+
+        Returns:
+            {"valid": bool, "email": str|None, "error": str|None}
+        """
+        try:
+            resp = self.session.get(self._url("/api/auth/session"), timeout=15)
+            if not resp.ok:
+                return {"valid": False, "email": None, "error": f"HTTP {resp.status_code}"}
+            data = resp.json()
+            user = data.get("user", {})
+            email = user.get("email")
+            if email:
+                return {"valid": True, "email": email, "error": None}
+            return {"valid": False, "email": None, "error": "No user in session response"}
+        except Exception as e:
+            return {"valid": False, "email": None, "error": str(e)}
+
+    @property
+    def session_valid(self) -> bool:
+        """True if the current session appears active."""
+        return self.validate_session()["valid"]
 
     # ------------------------------------------------------------------
     # Dynamic Model Loading
