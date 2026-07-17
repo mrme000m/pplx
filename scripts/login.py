@@ -431,11 +431,23 @@ def submit_email_login(send, email_addr: str) -> bool:
 
 
 def wait_for_verification_page(send, timeout: int = 30) -> bool:
-    """Wait until the page navigates to the verification page."""
+    """Wait until the page navigates to the verification page or OTP inputs appear."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         url = _eval(send, "location.href")
         if "verify-request" in url:
+            return True
+        # Perplexity may show OTP inline without URL change
+        has_otp = _eval(send, """
+            (function() {
+                let inputs = document.querySelectorAll('input[type="text"], input[inputmode="numeric"]');
+                if (inputs.length >= 6) return true;
+                let any = document.querySelector('input[placeholder*="digit"], input[autocomplete="one-time-code"], input[maxlength="6"]');
+                return !!any;
+            })()
+        """)
+        if has_otp:
+            print("  OTP inputs detected on current page", file=sys.stderr)
             return True
         time.sleep(1)
     return False
@@ -531,8 +543,9 @@ def fetch_otp_from_email(
     bw_item: Optional[str] = None,
     bw_field: str = "gmail",
     timeout: int = 120,
-) -> Optional[str]:
-    """Run extract_otp.py and return the OTP string or None."""
+    since: Optional[float] = None,
+) -> Optional[dict]:
+    """Run extract_otp.py and return the OTP dict or None."""
     cmd = [sys.executable, str(EXTRACT_OTP)]
     if otp_email:
         cmd += ["--email", otp_email]
@@ -543,6 +556,8 @@ def fetch_otp_from_email(
     if bw_item:
         cmd += ["--bw-item", bw_item]
     cmd += ["--bw-field", bw_field]
+    if since:
+        cmd += ["--since", str(since)]
     cmd += ["--timeout", str(timeout)]
 
     print(f"Running: {' '.join(cmd)}", file=sys.stderr)
@@ -558,12 +573,12 @@ def fetch_otp_from_email(
         print(f"extract_otp.py invalid output: {result.stdout}", file=sys.stderr)
         return None
 
-    otp = data.get("otp")
-    if otp:
-        print(f"Got OTP: {otp}", file=sys.stderr)
+    if data.get("otp"):
+        print(f"Got OTP: {data['otp']}", file=sys.stderr)
+        return data
     else:
         print(f"No OTP found: {data.get('error', 'unknown')}", file=sys.stderr)
-    return otp
+        return None
 
 
 # ─── Bitwarden integration ──────────────────────────────────────────────────
@@ -760,6 +775,7 @@ def main() -> int:
             time.sleep(1)
 
             print("Submitting email login…", file=sys.stderr)
+            email_submit_time = time.time()
             if not submit_email_login(send, args.email):
                 print("ERROR: Could not submit email login", file=sys.stderr)
                 return 1
@@ -777,35 +793,46 @@ def main() -> int:
             otp_email = args.otp_email or args.email
             print(f"Fetching OTP for {otp_email}…", file=sys.stderr)
 
-            otp = fetch_otp_from_email(
+            otp_data = fetch_otp_from_email(
                 otp_email=otp_email,
                 otp_app_password=args.otp_app_password or "",
                 forward_to=args.forward_to,
                 bw_item=args.bw_item,
                 bw_field=args.bw_field,
                 timeout=args.otp_timeout,
+                since=email_submit_time,
             )
 
-            if not otp:
+            if not otp_data:
                 # Try without app password — use bw for both
                 print("Retrying OTP with Bitwarden credentials…", file=sys.stderr)
-                otp = fetch_otp_from_email(
+                otp_data = fetch_otp_from_email(
                     otp_email="",
                     otp_app_password="",
                     forward_to=args.forward_to or args.email,
                     bw_item=args.bw_item,
                     bw_field=args.bw_field,
                     timeout=args.otp_timeout,
+                    since=email_submit_time,
                 )
 
-            if not otp:
+            if not otp_data:
                 url = _eval(send, "location.href")
                 print(f"Page URL: {url}", file=sys.stderr)
                 return 1
 
-            # ── Fill OTP and confirm ─────────────────────────────────────────
-            print(f"Filling OTP: {otp}", file=sys.stderr)
-            fill_otp(send, otp)
+            otp = otp_data.get("otp", "")
+            magic_url = otp_data.get("url", "")
+
+            # ── Prefer magic-link navigation over OTP field filling ──────────
+            if magic_url:
+                print(f"Navigating to magic link: {magic_url[:80]}…", file=sys.stderr)
+                _eval(send, f"location.href = {json.dumps(magic_url)}")
+                time.sleep(5)
+            else:
+                # Fallback: fill OTP fields
+                print(f"Filling OTP: {otp}", file=sys.stderr)
+                fill_otp(send, otp)
 
             print("Waiting for login completion…", file=sys.stderr)
             if not wait_for_login(send):

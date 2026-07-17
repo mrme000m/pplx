@@ -21,7 +21,7 @@ Usage:
       --bw-item "myaccount.google.com"
 
 Output (JSON):
-  {"otp": "873106", "sender": "team@mail.perplexity.ai", "subject": "Sign in to Perplexity"}
+  {"otp": "873106", "url": "https://www.perplexity.ai/api/auth/callback/email?...", "sender": "team@mail.perplexity.ai", "subject": "Sign in to Perplexity"}
 """
 
 from __future__ import annotations
@@ -34,7 +34,8 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 
@@ -99,6 +100,23 @@ def get_email_from_bw(item_name: str) -> Optional[str]:
     return item.get("login", {}).get("username")
 
 
+def parse_email_date(date_str: str) -> Optional[datetime]:
+    """Parse an email Date header into an aware datetime."""
+    if not date_str:
+        return None
+    for fmt in [
+        "%a, %d %b %Y %H:%M:%S %z",
+        "%d %b %Y %H:%M:%S %z",
+        "%a, %d %b %Y %H:%M:%S %Z",
+        "%d %b %Y %H:%M:%S %Z",
+    ]:
+        try:
+            return datetime.strptime(date_str.strip(), fmt)
+        except ValueError:
+            pass
+    return None
+
+
 # ─── IMAP OTP extraction ─────────────────────────────────────────────────────
 
 def fetch_otp(
@@ -106,11 +124,14 @@ def fetch_otp(
     app_password: str,
     imap_server: str = "imap.gmail.com",
     lookback_minutes: int = 15,
+    since: Optional[float] = None,
 ) -> Optional[dict]:
     """
     Check inbox for a Perplexity sign-in email and extract the 6-digit token.
+    Only returns emails received after `since` (unix timestamp) if provided.
+    When multiple emails match, returns the one with the latest Date header.
 
-    Returns dict with otp, sender, subject, or None if not found.
+    Returns dict with otp, url, sender, subject, or None if not found.
     """
     try:
         mail = imaplib.IMAP4_SSL(imap_server)
@@ -130,8 +151,13 @@ def fetch_otp(
         if not ids:
             return None
 
-        # Process newest first
-        for mid in reversed(ids):
+        since_dt = datetime.fromtimestamp(since, tz=timezone.utc) if since else None
+        best_match = None
+        best_date = None
+
+        # Scan ALL matching emails and return the LATEST one (by Date header).
+        # We process in ascending order but compare dates to find the newest.
+        for mid in ids:
             status, msg_data = mail.fetch(mid, "(RFC822)")
             if status != "OK":
                 continue
@@ -141,6 +167,12 @@ def fetch_otp(
 
             subject = msg.get("Subject", "")
             sender = msg.get("From", "")
+            date_hdr = msg.get("Date", "")
+            email_dt = parse_email_date(date_hdr)
+
+            # Skip emails older than `since`
+            if since_dt and email_dt and email_dt < since_dt:
+                continue
 
             # Extract body
             body = ""
@@ -159,30 +191,38 @@ def fetch_otp(
             # Pattern: ...&token=123456 or token%3D123456
             token_match = re.search(r"[&?]token[=%]3?[Dd]?(\d{6})", body)
             if token_match:
-                mail.logout()
-                return {
+                url_match = re.search(r"(https?://[^\s\"<>\]\)]*\btoken[=%]3?[Dd]?\d{6})", body)
+                candidate = {
                     "otp": token_match.group(1),
+                    "url": url_match.group(1) if url_match else "",
                     "sender": sender,
                     "subject": subject.strip(),
                 }
+                if email_dt and (best_date is None or email_dt > best_date):
+                    best_date = email_dt
+                    best_match = candidate
+                continue
 
             # Fallback: any 6-digit code in body
             codes = re.findall(r"\b(\d{6})\b", body)
             if codes:
-                # Heuristic: prefer codes that appear multiple times (embedded in URLs)
                 from collections import Counter
                 counts = Counter(codes)
                 best = counts.most_common(1)[0][0]
-
-                mail.logout()
-                return {
+                url_match = re.search(r"(https?://[^\s\"<>\]\)]*\btoken[=%]3?[Dd]?\d{6})", body)
+                candidate = {
                     "otp": best,
+                    "url": url_match.group(1) if url_match else "",
                     "sender": sender,
                     "subject": subject.strip(),
                 }
+                if email_dt and (best_date is None or email_dt > best_date):
+                    best_date = email_dt
+                    best_match = candidate
+                continue
 
         mail.logout()
-        return None
+        return best_match
 
     except imaplib.IMAP4.error as e:
         raise RuntimeError(f"IMAP login failed: {e}") from e
@@ -205,6 +245,8 @@ def main() -> int:
                         help="Bitwarden custom field name for app password (default: gmail)")
     parser.add_argument("--lookback", type=int, default=15,
                         help="Minutes to look back for OTP email (default: 15)")
+    parser.add_argument("--since", type=float, default=None,
+                        help="Unix timestamp; only accept emails received after this time")
     parser.add_argument("--timeout", type=int, default=120,
                         help="Seconds to keep polling for OTP (default: 120)")
     parser.add_argument("--poll-interval", type=int, default=5,
@@ -238,12 +280,11 @@ def main() -> int:
         return 1
 
     # Poll for OTP
-    import time
     deadline = time.time() + args.timeout
 
     while time.time() < deadline:
         try:
-            result = fetch_otp(email_addr, app_password, lookback_minutes=args.lookback)
+            result = fetch_otp(email_addr, app_password, lookback_minutes=args.lookback, since=args.since)
             if result:
                 print(json.dumps(result))
                 return 0
