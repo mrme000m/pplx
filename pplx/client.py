@@ -1069,28 +1069,35 @@ class PerplexityClient:
         """Notify Perplexity that a file upload is complete.
 
         Calls ``POST /rest/uploads/subscribe`` so the attached file becomes
-        available for referencing in a search.
+        available for referencing in a search. This step is best-effort: some
+        deployments don't expose a subscribe endpoint, but the S3 upload itself
+        (step 2) already transfers the file and the ``file_uuid`` is valid.
 
         Args:
             file_uuid: Server-assigned file UUID.
             s3_object_url: The S3 object URL returned by :meth:`create_upload_urls`.
 
         Returns:
-            Parsed JSON response (typically empty/success).
+            Parsed JSON response, or ``{"success": True, "subscribed": False}``
+            if the subscribe endpoint is unavailable.
         """
-        resp = self._post(r"/rest/uploads/subscribe?version=2.18&source=default",
-            json={
-                "file_uuid": file_uuid,
-                "s3_object_url": s3_object_url,
-                "source": "default",
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
         try:
-            return resp.json()
-        except ValueError:
-            return {"success": True}
+            resp = self._post(r"/rest/uploads/subscribe?version=2.18&source=default",
+                json={
+                    "file_uuid": file_uuid,
+                    "s3_object_url": s3_object_url,
+                    "source": "default",
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            try:
+                return resp.json()
+            except ValueError:
+                return {"success": True}
+        except Exception as e:
+            # Subscribe endpoint may not be available; S3 upload already done.
+            return {"success": True, "subscribed": False, "note": str(e)[:200]}
 
     def attach_file(self, file_path):
         """Attach a local file for use in a Perplexity search.
