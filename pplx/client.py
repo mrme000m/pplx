@@ -135,6 +135,21 @@ class PerplexityClient:
             self._fallback_models()
 
     # ------------------------------------------------------------------
+    # Sub-interfaces
+    # ------------------------------------------------------------------
+
+    @property
+    def finance(self):
+        """Perplexity Finance interface (https://www.perplexity.ai/finance).
+
+        Lazily built so importing the package stays free of extra state.
+        """
+        if getattr(self, "_finance", None) is None:
+            from .finance import PerplexityFinance
+            self._finance = PerplexityFinance(self)
+        return self._finance
+
+    # ------------------------------------------------------------------
     # Request helpers
     # ------------------------------------------------------------------
 
@@ -521,6 +536,7 @@ class PerplexityClient:
         follow_up=None,
         incognito=False,
         collections=None,
+        attachments=None,
     ):
         """Execute a search query.
 
@@ -535,6 +551,9 @@ class PerplexityClient:
             follow_up: Dict with backend_uuid for continuing threads.
             incognito: Do not save to history.
             collections: List of Space UUIDs to scope the search into.
+            attachments: List of attachment dicts (from :meth:`attach_file`),
+                each with ``file_uuid``, ``filename``, ``content_type``,
+                ``file_size``.
         """
         if sources is None:
             sources = ["web"]
@@ -548,6 +567,8 @@ class PerplexityClient:
         extra = {}
         if collections:
             extra["collections"] = collections
+        if attachments:
+            extra["attachments"] = attachments
 
         payload = self._build_payload(
             query=query,
@@ -803,68 +824,74 @@ class PerplexityClient:
     def list_space_files(self, uuid, search_keyword="", page_size=20,
                          cursor=None, connection_types=None, status=None,
                          order_by="updated", order_dir="desc"):
-        url = "https://www.perplexity.ai/rest/files/list?version=2.18&source=default"
+        # Uploaded Space files live in the COLLECTION file repository, not in
+        # /rest/files/list (which only reports *connected* Drive/Box/Dropbox
+        # files).  `/rest/file-repository/list-files` is the source of truth
+        # for user-uploaded files and requires `file_states_in_filter`;
+        # `search_term` is unsupported for Project Files, so filter locally.
+        url = "https://www.perplexity.ai/rest/file-repository/list-files?version=2.18&source=default"
+        offset = 0
+        if cursor:
+            try:
+                offset = int(cursor)
+            except (TypeError, ValueError):
+                offset = 0
         payload = {
             "file_repository_info": {
                 "file_repository_type": "COLLECTION",
                 "owner_id": uuid,
             },
-            "filters": {
-                "connection_types": connection_types or [],
-                "status": status or [],
-                "search_keyword": search_keyword,
-                "parent_uuids": [],
-                "root_files_only": True,
-                "file_types": [],
-                "connection_ids": [],
-                "ids": [],
-                "remote_file_ids": [],
-                "uuids": [],
-                "upload_ids": [],
-            },
-            "pagination": {"cursor": cursor, "page_size": page_size},
-            "order_by": order_by,
-            "order_dir": order_dir,
+            "limit": int(page_size or 20),
+            "offset": offset,
+            "search_term": "",
+            "file_states_in_filter": ["COMPLETE"],
         }
         resp = self.session.post(url, json=payload)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        files = data.get("files", [])
+        if search_keyword:
+            needle = str(search_keyword).lower()
+            files = [f for f in files if needle in (f.get("filename") or "").lower()]
+        return {
+            "files": files,
+            "total": data.get("num_total_files") if data.get("num_total_files") is not None else len(files),
+        }
 
     def delete_space_files(self, uuid, file_uuids):
-        url = "https://www.perplexity.ai/rest/files/delete?version=2.18&source=default"
+        uuids = file_uuids if isinstance(file_uuids, list) else [file_uuids]
+        url = "https://www.perplexity.ai/rest/file-repository/delete-files?version=2.18&source=default"
         payload = {
             "file_repository_info": {
                 "file_repository_type": "COLLECTION",
                 "owner_id": uuid,
             },
-            "filters": {
-                "uuids": file_uuids if isinstance(file_uuids, list) else [file_uuids],
-                "connection_ids": [],
-                "connection_types": [],
-                "file_types": [],
-                "ids": [],
-                "parent_uuids": [],
-                "remote_file_ids": [],
-                "root_files_only": False,
-                "status": [],
-                "upload_ids": [],
-            },
+            "file_uuids": uuids,
         }
         resp = self.session.post(url, json=payload)
         resp.raise_for_status()
-        return {"success": True, "deleted_uuids": file_uuids}
+        return {"success": True, "deleted_uuids": uuids}
 
     def get_upload_status(self, uuid):
-        url = "https://www.perplexity.ai/rest/file-repository/uploads?version=2.18&source=default"
+        # The legacy /rest/file-repository/uploads endpoint tracks upload
+        # *batches* and stays empty for direct uploads.  Report the actual
+        # per-file state machine (COMPLETE / PROCESSING / FAILED) instead.
+        url = "https://www.perplexity.ai/rest/file-repository/list-files?version=2.18&source=default"
         payload = {
             "file_repository_info": {
                 "file_repository_type": "COLLECTION",
                 "owner_id": uuid,
-            }
+            },
+            "limit": 100,
+            "offset": 0,
+            "search_term": "",
+            "file_states_in_filter": ["COMPLETE", "PROCESSING", "FAILED"],
         }
         resp = self.session.post(url, json=payload)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        files = data.get("files", [])
+        return {"files": files, "total": len(files)}
 
     def upload_file_to_space(self, uuid, filename, file_content, content_type=None):
         if content_type is None:
@@ -884,6 +911,7 @@ class PerplexityClient:
                 ],
                 "file_repository_info": repo_info,
             },
+            timeout=30,
         )
         url_req.raise_for_status()
         url_params = url_req.json()["file_url_params"][0]
@@ -903,7 +931,7 @@ class PerplexityClient:
             method="POST",
         )
         try:
-            urllib.request.urlopen(req).read()
+            urllib.request.urlopen(req, timeout=30).read()
         except urllib.error.HTTPError as e:
             raise RuntimeError(
                 f"S3 upload failed (HTTP {e.code}): {e.read().decode('utf-8', errors='replace')[:500]}"
@@ -911,7 +939,10 @@ class PerplexityClient:
         except Exception as e:
             raise RuntimeError(f"S3 upload failed: {e}") from e
 
-        # Step 3: Trigger indexing via SSE
+        # Step 3: Trigger indexing.  The endpoint is an SSE endpoint but it
+        # replies with a short `data: {"status": "success"}` body and then
+        # closes; reading it via stream=True/iter_lines hangs curl_cffi.
+        # Read it as a plain (bounded) POST instead.
         index_resp = self._post(r"/rest/sse/index_files",
             json={
                 "file_repository_info": repo_info,
@@ -924,22 +955,191 @@ class PerplexityClient:
                     }
                 ],
             },
-            stream=True,
+            timeout=30,
         )
         index_resp.raise_for_status()
 
-        sse_status = None
-        for chunk in index_resp.iter_lines(delimiter=b"\r\n\r\n"):
-            content = chunk.decode("utf-8")
-            if content.startswith("event: message\r\n"):
-                try:
-                    sse_status = json.loads(content[len("event: message\r\ndata: "):])
-                except json.JSONDecodeError:
-                    pass
-            elif content.startswith("event: end_of_stream\r\n"):
-                break
+        # The repository re-keys the file as `pfl.<collection>.<base64(name)>`
+        # once it registers.  Resolve that canonical uuid + state so callers
+        # get a file_uuid that actually works with list/delete.
+        indexing_status = "processing"
+        try:
+            listing = self._post(r"/rest/file-repository/list-files?version=2.18&source=default",
+                json={
+                    "file_repository_info": repo_info,
+                    "limit": 100,
+                    "offset": 0,
+                    "search_term": "",
+                    "file_states_in_filter": ["COMPLETE", "PROCESSING", "FAILED"],
+                },
+                timeout=30,
+            ).json()
+            for entry in listing.get("files", []):
+                if entry.get("filename") == filename:
+                    file_uuid = entry.get("file_uuid") or file_uuid
+                    indexing_status = entry.get("file_state") or indexing_status
+                    break
+        except Exception:
+            pass
 
-        return {"file_uuid": file_uuid, "filename": filename, "indexing_status": sse_status}
+        return {"file_uuid": file_uuid, "filename": filename, "indexing_status": indexing_status}
+
+    # ------------------------------------------------------------------
+    # File attachments (chat composer upload flow)
+    # ------------------------------------------------------------------
+
+    def create_upload_urls(self, filename, content_type, file_size, source="default"):
+        """Request pre-signed S3 upload URLs for a file attachment.
+
+        Calls ``POST /rest/uploads/batch_create_upload_urls`` and returns the
+        per-file result dict containing ``s3_bucket_url``, ``s3_object_url``,
+        S3 POST form ``fields``, and the server-assigned ``file_uuid``.
+
+        Args:
+            filename: Name of the file being attached.
+            content_type: MIME type of the file.
+            file_size: Size of the file in bytes.
+            source: Upload source context (default: ``default``).
+
+        Returns:
+            Dict with the upload URL params for a single file.
+        """
+        file_uuid = str(uuid4())
+        resp = self._post(r"/rest/uploads/batch_create_upload_urls?version=2.18&source=default",
+            json={
+                "files": {
+                    file_uuid: {
+                        "filename": filename,
+                        "content_type": content_type,
+                        "source": source,
+                        "file_size": file_size,
+                        "force_image": False,
+                        "skip_parsing": False,
+                    }
+                }
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("results", {})
+        # The server echoes back under the same uuid key we sent
+        result = results.get(file_uuid) or next(iter(results.values()))
+        return result
+
+    def upload_file_to_s3(self, url_params, file_content, filename, content_type):
+        """Upload file bytes to S3 using the pre-signed POST form fields.
+
+        Uses manual multipart construction (curl_cffi CurlMime is broken for
+        S3 pre-signed POSTs in 0.15.0).
+
+        Args:
+            url_params: Result dict from :meth:`create_upload_urls`.
+            file_content: File bytes.
+            filename: Original filename.
+            content_type: MIME type of the file.
+
+        Returns:
+            True on success (HTTP 204).
+        """
+        s3_bucket_url = url_params["s3_bucket_url"]
+        fields = url_params["fields"]
+
+        mp_body = _build_multipart_body(
+            fields=fields,
+            files=[{"name": "file", "filename": filename, "content_type": content_type, "data": file_content}],
+        )
+        req = urllib.request.Request(
+            s3_bucket_url,
+            data=mp_body,
+            headers={"Content-Type": f"multipart/form-data; boundary={_MULTIPART_BOUNDARY}"},
+            method="POST",
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=60)
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(
+                f"S3 upload failed (HTTP {e.code}): {e.read().decode('utf-8', errors='replace')[:500]}"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"S3 upload failed: {e}") from e
+        return resp.status == 204
+
+    def subscribe_upload(self, file_uuid, s3_object_url):
+        """Notify Perplexity that a file upload is complete.
+
+        Calls ``POST /rest/uploads/subscribe`` so the attached file becomes
+        available for referencing in a search.
+
+        Args:
+            file_uuid: Server-assigned file UUID.
+            s3_object_url: The S3 object URL returned by :meth:`create_upload_urls`.
+
+        Returns:
+            Parsed JSON response (typically empty/success).
+        """
+        resp = self._post(r"/rest/uploads/subscribe?version=2.18&source=default",
+            json={
+                "file_uuid": file_uuid,
+                "s3_object_url": s3_object_url,
+                "source": "default",
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        try:
+            return resp.json()
+        except ValueError:
+            return {"success": True}
+
+    def attach_file(self, file_path):
+        """Attach a local file for use in a Perplexity search.
+
+        Performs the full upload flow:
+        1. Request pre-signed S3 URLs (``batch_create_upload_urls``)
+        2. Upload the file bytes to S3
+        3. Subscribe / notify completion
+
+        Args:
+            file_path: Path to the local file to attach.
+
+        Returns:
+            Dict with ``file_uuid``, ``filename``, ``s3_object_url`` and
+            ``attachment`` fields suitable for passing to
+            :meth:`search` via the ``attachments`` argument.
+        """
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        file_content = path.read_bytes()
+        file_size = len(file_content)
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+        # Step 1: Get pre-signed URLs
+        url_params = self.create_upload_urls(path.name, content_type, file_size)
+        file_uuid = url_params["file_uuid"]
+        s3_object_url = url_params["s3_object_url"]
+
+        # Step 2: Upload to S3
+        self.upload_file_to_s3(url_params, file_content, path.name, content_type)
+
+        # Step 3: Subscribe / notify
+        self.subscribe_upload(file_uuid, s3_object_url)
+
+        return {
+            "file_uuid": file_uuid,
+            "filename": path.name,
+            "content_type": content_type,
+            "file_size": file_size,
+            "s3_object_url": s3_object_url,
+            "attachment": {
+                "file_uuid": file_uuid,
+                "filename": path.name,
+                "content_type": content_type,
+                "file_size": file_size,
+            },
+        }
 
     def add_space_link(self, uuid, link):
         """Add a focused web link (domain) to a Space.

@@ -32,41 +32,55 @@ def _extract_answer(raw):
     if not raw or not isinstance(raw, dict):
         return {"answer": None, "backend_uuid": None}
 
-    text_obj = raw.get("text", {})
-    if isinstance(text_obj, str):
-        try:
-            text_obj = json.loads(text_obj)
-        except json.JSONDecodeError:
-            text_obj = None
-
     answer = None
-    if isinstance(text_obj, list):
-        # Streaming format: list of step objects
-        for step in text_obj:
-            if not isinstance(step, dict):
+
+    # Current API format: answer text lives in blocks[].markdown_block.chunks[]
+    blocks = raw.get("blocks")
+    if isinstance(blocks, list):
+        for blk in blocks:
+            if not isinstance(blk, dict):
                 continue
-            step_type = step.get("step_type", "")
-            content = step.get("content", {})
-            if step_type == "FINAL" and isinstance(content, dict):
-                # The answer is JSON-encoded inside content.answer
-                answer_json = content.get("answer", "")
-                if isinstance(answer_json, str):
-                    try:
-                        parsed = json.loads(answer_json)
-                        if isinstance(parsed, dict):
-                            answer = parsed.get("answer")
-                    except json.JSONDecodeError:
-                        answer = answer_json
-                elif isinstance(answer_json, dict):
-                    answer = answer_json.get("answer")
-            elif step_type == "SEARCH_RESULTS" and isinstance(content, dict) and not answer:
-                results = content.get("web_results", [])
-                if results and isinstance(results, list):
-                    snippets = [r.get("snippet", "") for r in results if r.get("snippet")]
-                    if snippets:
-                        answer = "\n\n".join(snippets)
-    elif isinstance(text_obj, dict):
-        answer = text_obj.get("answer")
+            mb = blk.get("markdown_block")
+            if isinstance(mb, dict) and isinstance(mb.get("chunks"), list) and mb["chunks"]:
+                answer = "".join(str(c) for c in mb["chunks"])
+                if answer.strip():
+                    break
+
+    if answer is None:
+        text_obj = raw.get("text", {})
+        if isinstance(text_obj, str):
+            try:
+                text_obj = json.loads(text_obj)
+            except json.JSONDecodeError:
+                text_obj = None
+
+        if isinstance(text_obj, list):
+            # Streaming format: list of step objects
+            for step in text_obj:
+                if not isinstance(step, dict):
+                    continue
+                step_type = step.get("step_type", "")
+                content = step.get("content", {})
+                if step_type == "FINAL" and isinstance(content, dict):
+                    # The answer is JSON-encoded inside content.answer
+                    answer_json = content.get("answer", "")
+                    if isinstance(answer_json, str):
+                        try:
+                            parsed = json.loads(answer_json)
+                            if isinstance(parsed, dict):
+                                answer = parsed.get("answer")
+                        except json.JSONDecodeError:
+                            answer = answer_json
+                    elif isinstance(answer_json, dict):
+                        answer = answer_json.get("answer")
+                elif step_type == "SEARCH_RESULTS" and isinstance(content, dict) and not answer:
+                    results = content.get("web_results", [])
+                    if results and isinstance(results, list):
+                        snippets = [r.get("snippet", "") for r in results if r.get("snippet")]
+                        if snippets:
+                            answer = "\n\n".join(snippets)
+        elif isinstance(text_obj, dict):
+            answer = text_obj.get("answer")
 
     return {
         "answer": answer,
@@ -137,6 +151,31 @@ def _raw_cmd(func):
     return wrapper
 
 
+def _resolve_attachments(attach_paths):
+    """Resolve --attach file paths into attachment dicts via client.attach_file.
+
+    Args:
+        attach_paths: List of pathlib.Path or None.
+
+    Returns:
+        List of attachment dicts (suitable for client.search attachments=),
+        or empty list if none.
+    """
+    if not attach_paths:
+        return []
+    client = _client()
+    attachments = []
+    for p in attach_paths:
+        attachments.append(client.attach_file(str(p))["attachment"])
+    return attachments
+
+
+@_json_cmd
+def cmd_attach(client, args):
+    """Attach a file to Perplexity (returns file_uuid for use in search)."""
+    return client.attach_file(args.file)
+
+
 def cmd_refresh_cookies(args):
     """Run the deterministic cookie refresh pipeline."""
     import subprocess
@@ -166,6 +205,7 @@ def cmd_validate(args):
 
 def cmd_search(args):
     client = _client()
+    attachments = _resolve_attachments(args.attach)
     result = client.search(
         query=" ".join(args.query),
         mode=args.mode.replace("_", " "),
@@ -174,19 +214,22 @@ def cmd_search(args):
         sources=args.sources.split(",") if args.sources else ["web"],
         language=args.language,
         incognito=args.incognito,
+        attachments=attachments,
     )
     _print_search_result(result, args)
 
 
 def cmd_follow_up(args):
     client = _client()
+    attachments = _resolve_attachments(args.attach)
     result = client.search(
         query=" ".join(args.query),
         mode=args.mode.replace("_", " "),
         model=args.model,
         thinking=args.thinking,
-        follow_up={"backend_uuid": args.backend_uuid},
         language=args.language,
+        follow_up={"backend_uuid": args.backend_uuid},
+        attachments=attachments,
     )
     _print_search_result(result, args)
 
@@ -461,6 +504,92 @@ def cmd_finance_alert(client, args):
 def cmd_finance_quote(client, args):
     return client.get_finance_quote(symbol=args.symbol)
 
+@_json_cmd
+def cmd_finance_history(client, args):
+    return client.finance.get_history(symbol=args.symbol, period=args.period, offset=args.offset)
+
+@_json_cmd
+def cmd_finance_movers(client, args):
+    return client.finance.get_top_movers(market_section=args.section, country=args.country)
+
+@_json_cmd
+def cmd_finance_sentiment(client, args):
+    return client.finance.get_market_sentiment(market_section=args.section, country=args.country)
+
+@_json_cmd
+def cmd_finance_summary(client, args):
+    return client.finance.get_market_summary(market_section=args.section, country=args.country)
+
+@_json_cmd
+def cmd_finance_indices(client, args):
+    return client.finance.get_top_indices(market_section=args.section, country=args.country)
+
+@_json_cmd
+def cmd_finance_sectors(client, args):
+    return client.finance.get_equity_sectors()
+
+@_json_cmd
+def cmd_finance_zscores(client, args):
+    return client.finance.get_top_z_scores(market_section=args.section, country=args.country)
+
+@_json_cmd
+def cmd_finance_leaderboard(client, args):
+    return client.finance.get_crypto_leaderboard(sort_by=args.sort_by, order_by=args.order_by)
+
+@_json_cmd
+def cmd_finance_screener(client, args):
+    return client.finance.run_screener(query=args.query, currency=args.currency)
+
+@_json_cmd
+def cmd_finance_financials(client, args):
+    if args.version == 1:
+        return client.finance.get_financials(symbol=args.symbol)
+    if args.version == 2:
+        return client.finance.get_financials_v2(symbol=args.symbol, period=args.period)
+    return client.finance.get_financials_v3(symbol=args.symbol, period=args.period)
+
+@_json_cmd
+def cmd_finance_news(client, args):
+    return client.finance.get_news(symbol=args.symbol)
+
+@_json_cmd
+def cmd_finance_ratings(client, args):
+    return client.finance.get_analyst_ratings(symbol=args.symbol)
+
+@_json_cmd
+def cmd_finance_peers(client, args):
+    return client.finance.get_peers(symbol=args.symbol)
+
+@_json_cmd
+def cmd_finance_movement(client, args):
+    return client.finance.get_significant_movement_summary(symbol=args.symbol)
+
+@_json_cmd
+def cmd_finance_profile(client, args):
+    return client.finance.get_profile(symbol=args.symbol)
+
+@_json_cmd
+def cmd_finance_earnings_schedule(client, args):
+    return client.finance.get_earnings_schedule(start_date=args.start, end_date=args.end, country=args.country)
+
+@_json_cmd
+def cmd_finance_predictions(client, args):
+    return client.finance.get_prediction_markets(tag=args.tag, page=args.page, limit=args.limit)
+
+@_json_cmd
+def cmd_finance_politicians(client, args):
+    return client.finance.get_politicians()
+
+@_json_cmd
+def cmd_finance_watchlist(client, args):
+    if args.add:
+        return client.finance.add_to_watchlist(symbol=args.add)
+    if args.remove:
+        return client.finance.remove_from_watchlist(symbol=args.remove)
+    if args.quotes:
+        return client.finance.get_watchlist_quotes()
+    return client.finance.get_watchlist()
+
 def cmd_spaces_search(args):
     client = _client()
     result = client.search_in_space(
@@ -645,6 +774,10 @@ def build_parser():
     search_parent.add_argument("--language", default="en-US", help="Language code (ISO 639, e.g. en-US)")
     search_parent.add_argument("--raw", action="store_true", help="Output full raw JSON")
     search_parent.add_argument("-v", "--verbose", action="store_true")
+    search_parent.add_argument(
+        "--attach", type=Path, action="append", default=None,
+        help="Attach a file to the query (can be repeated)",
+    )
 
     # search
     s = sub.add_parser("search", parents=[search_parent], help="Search the web")
@@ -936,6 +1069,94 @@ def build_parser():
     fin_alert.add_argument("--model", default="turbo", help="Model preference")
     fin_alert.set_defaults(func=cmd_finance_alert)
 
+    fin_hist = fin_sub.add_parser("history", help="Get price history for a symbol")
+    fin_hist.add_argument("symbol", help="Ticker symbol (e.g. AAPL, BTCUSD)")
+    fin_hist.add_argument("--period", default="1d", help="1d, 5d, 1m, 6m, 3m, ytd, 1y, 5y, max")
+    fin_hist.add_argument("--offset", type=int, default=0, help="Offset in periods from now")
+    fin_hist.set_defaults(func=cmd_finance_history)
+
+    def _fin_section(p):
+        p.add_argument("--section", default="market",
+                       choices=["market", "crypto", "screener", "earnings", "predictions"],
+                       help="Finance section route")
+        p.add_argument("--country", default="US", help="Market country code")
+        return p
+
+    _fin_section(fin_sub.add_parser("sentiment", help="Market sentiment and open/closed status")
+                 ).set_defaults(func=cmd_finance_sentiment)
+    _fin_section(fin_sub.add_parser("summary", help="AI market summary with sources")
+                 ).set_defaults(func=cmd_finance_summary)
+    _fin_section(fin_sub.add_parser("indices", help="Headline indices with sparkline history")
+                 ).set_defaults(func=cmd_finance_indices)
+    _fin_section(fin_sub.add_parser("movers", help="Gainers, losers and actives")
+                 ).set_defaults(func=cmd_finance_movers)
+    _fin_section(fin_sub.add_parser("zscores", help="Most statistically unusual instruments")
+                 ).set_defaults(func=cmd_finance_zscores)
+
+    fin_sectors = fin_sub.add_parser("sectors", help="Equity sector performance")
+    fin_sectors.set_defaults(func=cmd_finance_sectors)
+
+    fin_lb = fin_sub.add_parser("leaderboard", help="Crypto leaderboard")
+    fin_lb.add_argument("--sort-by", default="dollarVolume24h",
+                        choices=["dollarVolume24h", "dollarChange24h",
+                                 "volumeChange24h", "price", "name"])
+    fin_lb.add_argument("--order-by", default="desc", choices=["asc", "desc"])
+    fin_lb.set_defaults(func=cmd_finance_leaderboard)
+
+    fin_scr = fin_sub.add_parser("screener", help="Natural-language stock screen")
+    fin_scr.add_argument("query", help="e.g. 'most active stocks'")
+    fin_scr.add_argument("--currency", default="USD", help="Quote currency")
+    fin_scr.set_defaults(func=cmd_finance_screener)
+
+    fin_fin = fin_sub.add_parser("financials", help="Financial statements for a symbol")
+    fin_fin.add_argument("symbol", help="Ticker symbol")
+    fin_fin.add_argument("--version", type=int, default=3, choices=[1, 2, 3],
+                         help="Statement API version (1=summary, 2=period, 3=segments)")
+    fin_fin.add_argument("--period", default="annual", choices=["annual", "quarter"])
+    fin_fin.set_defaults(func=cmd_finance_financials)
+
+    fin_news = fin_sub.add_parser("news", help="Publisher news for a symbol")
+    fin_news.add_argument("symbol", help="Ticker symbol")
+    fin_news.set_defaults(func=cmd_finance_news)
+
+    fin_rat = fin_sub.add_parser("ratings", help="Analyst consensus and ratings")
+    fin_rat.add_argument("symbol", help="Ticker symbol")
+    fin_rat.set_defaults(func=cmd_finance_ratings)
+
+    fin_peers = fin_sub.add_parser("peers", help="Comparable peers for a symbol")
+    fin_peers.add_argument("symbol", help="Ticker symbol")
+    fin_peers.set_defaults(func=cmd_finance_peers)
+
+    fin_move = fin_sub.add_parser("movement", help="Why a symbol moved today")
+    fin_move.add_argument("symbol", help="Ticker symbol")
+    fin_move.set_defaults(func=cmd_finance_movement)
+
+    fin_prof = fin_sub.add_parser("profile", help="Company/instrument profile")
+    fin_prof.add_argument("symbol", help="Ticker symbol")
+    fin_prof.set_defaults(func=cmd_finance_profile)
+
+    fin_earn = fin_sub.add_parser("earnings", help="Earnings calendar (max 7-day range)")
+    fin_earn.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
+    fin_earn.add_argument("--end", required=True, help="End date YYYY-MM-DD (under 7 days after start)")
+    fin_earn.add_argument("--country", default="US", help="Market country code")
+    fin_earn.set_defaults(func=cmd_finance_earnings_schedule)
+
+    fin_pred = fin_sub.add_parser("predictions", help="Prediction markets")
+    fin_pred.add_argument("--tag", default="finance", choices=["finance", "crypto"])
+    fin_pred.add_argument("--page", type=int, default=0)
+    fin_pred.add_argument("--limit", type=int, default=10)
+    fin_pred.set_defaults(func=cmd_finance_predictions)
+
+    fin_pol = fin_sub.add_parser("politicians", help="Tracked politicians and disclosures")
+    fin_pol.set_defaults(func=cmd_finance_politicians)
+
+    fin_wl = fin_sub.add_parser("watchlist", help="View or edit your watchlist")
+    wl_grp = fin_wl.add_mutually_exclusive_group()
+    wl_grp.add_argument("--add", help="Add a symbol to the watchlist")
+    wl_grp.add_argument("--remove", help="Remove a symbol from the watchlist")
+    fin_wl.add_argument("--quotes", action="store_true", help="Fetch live quotes instead of symbols")
+    fin_wl.set_defaults(func=cmd_finance_watchlist)
+
     # billing
     bill = sub.add_parser("billing", help="Show subscription billing info")
     bill.set_defaults(func=cmd_billing)
@@ -1025,6 +1246,14 @@ def build_parser():
         help="Check if the current Perplexity session is still valid"
     )
     val.set_defaults(func=cmd_validate)
+
+    # attach
+    at = sub.add_parser(
+        "attach",
+        help="Attach a local file to Perplexity (returns file_uuid)"
+    )
+    at.add_argument("file", type=Path, help="File path to attach")
+    at.set_defaults(func=cmd_attach)
 
     return p
 

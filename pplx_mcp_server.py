@@ -91,6 +91,11 @@ TOOLS: list[Tool] = [
                     "description": "Optional comma-separated source filter.",
                     "default": "",
                 },
+                "attachments": {
+                    "type": "array",
+                    "description": "Optional list of file attachment objects from pplx_attach_file.",
+                    "default": [],
+                },
                 "follow_up": {
                     "type": "string",
                     "description": "Optional backend_uuid of a previous query to continue the conversation.",
@@ -187,6 +192,94 @@ TOOLS: list[Tool] = [
             "properties": {},
         },
     ),
+    Tool(
+        name="pplx_finance_quote",
+        description="Get a real-time Perplexity Finance quote for a ticker or crypto pair (AAPL, XAUUSD, BTCUSD). Optionally include price history.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Ticker or pair, e.g. AAPL or BTCUSD."},
+                "with_history": {"type": "boolean", "description": "Include a price history series.", "default": False},
+                "history_period": {"type": "string", "description": "1d, 5d, 1m, 6m, 3m, ytd, 1y, 5y, max.", "default": "1d"},
+            },
+            "required": ["symbol"],
+        },
+    ),
+    Tool(
+        name="pplx_finance_market",
+        description="Get the Perplexity Finance market overview: sentiment and open/closed status, AI market summary with sources, headline indices, top gainers/losers/actives, and unusual z-score movers.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "section": {
+                    "type": "string",
+                    "description": "Finance section route.",
+                    "enum": ["market", "crypto", "screener", "earnings", "predictions"],
+                    "default": "market",
+                },
+                "country": {"type": "string", "description": "Market country code.", "default": "US"},
+                "part": {
+                    "type": "string",
+                    "description": "Which slice to return.",
+                    "enum": ["sentiment", "summary", "indices", "movers", "zscores"],
+                    "default": "sentiment",
+                },
+            },
+            "required": ["part"],
+        },
+    ),
+    Tool(
+        name="pplx_finance_screener",
+        description="Run a natural-language stock screen via Perplexity Finance (e.g. 'most active stocks', 'dividend stocks under 50'). Returns the resulting table of rows.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Screen description in plain English."},
+                "currency": {"type": "string", "description": "Quote currency for the result table.", "default": "USD"},
+                "limit": {"type": "integer", "description": "Max rows to return.", "default": 50},
+            },
+            "required": ["query"],
+        },
+    ),
+    Tool(
+        name="pplx_finance_symbol",
+        description="Get Perplexity Finance fundamentals for one symbol: quote, company profile, analyst ratings, peers, financial statements, news, or the AI explanation of today's move.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Ticker symbol."},
+                "part": {
+                    "type": "string",
+                    "description": "Which dataset to return.",
+                    "enum": ["quote", "profile", "ratings", "peers", "financials", "news", "movement", "history"],
+                    "default": "quote",
+                },
+                "period": {"type": "string", "description": "Statement/history period.", "enum": ["annual", "quarter", "1d", "5d", "1m", "6m", "3m", "ytd", "1y", "5y", "max"], "default": "annual"},
+            },
+            "required": ["symbol"],
+        },
+    ),
+    Tool(
+        name="pplx_finance_watchlist",
+        description="List the Perplexity Finance watchlist or fetch live quotes for it.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "quotes": {"type": "boolean", "description": "Return live quotes instead of the symbol list.", "default": False},
+            },
+        },
+    ),
+    Tool(
+        name="pplx_attach_file",
+        description="Attach a local file to Perplexity (returns file_uuid and attachment object for use in pplx_search).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Local file path to attach."},
+            },
+            "required": ["path"],
+        },
+    ),
 ]
 
 
@@ -272,6 +365,7 @@ async def main() -> None:
                 model = arguments.get("model", "") or None
                 thinking = bool(arguments.get("thinking", False))
                 sources = arguments.get("sources", "") or None
+                attachments = arguments.get("attachments") or None
                 follow_up = arguments.get("follow_up", "") or None
 
                 raw = client.search(
@@ -281,6 +375,7 @@ async def main() -> None:
                     thinking=thinking,
                     sources=sources,
                     follow_up=follow_up,
+                    attachments=attachments,
                 )
                 result = _extract_answer(raw)
                 return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
@@ -315,6 +410,76 @@ async def main() -> None:
 
             elif name == "pplx_validate_session":
                 result = client.validate_session()
+                return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "pplx_finance_quote":
+                symbol = arguments["symbol"]
+                result = client.finance.get_quote(
+                    symbol,
+                    with_history=bool(arguments.get("with_history", False)),
+                    history_period=arguments.get("history_period", "1d") or "1d",
+                )
+                return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "pplx_finance_market":
+                finance = client.finance
+                section = arguments.get("section", "market") or "market"
+                country = arguments.get("country", "US") or "US"
+                part = arguments["part"]
+                if part == "sentiment":
+                    result = finance.get_market_sentiment(section, country)
+                elif part == "summary":
+                    result = finance.get_market_summary(section, country)
+                elif part == "indices":
+                    result = finance.get_top_indices(section, country)
+                elif part == "movers":
+                    result = finance.get_top_movers(section, country)
+                else:
+                    result = finance.get_top_z_scores(section, country)
+                return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "pplx_finance_screener":
+                result = client.finance.run_screener(
+                    query=arguments["query"],
+                    currency=arguments.get("currency", "USD") or "USD",
+                )
+                limit = int(arguments.get("limit", 50) or 50)
+                if limit > 0 and isinstance(result, dict) and isinstance(result.get("table"), list):
+                    result = dict(result, table=result["table"][:limit], total_rows=len(result["table"]))
+                return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "pplx_finance_symbol":
+                finance = client.finance
+                symbol = arguments["symbol"]
+                period = arguments.get("period", "annual") or "annual"
+                part = arguments.get("part", "quote") or "quote"
+                if part == "quote":
+                    result = finance.get_quote(symbol)
+                elif part == "profile":
+                    result = finance.get_profile(symbol)
+                elif part == "ratings":
+                    result = finance.get_analyst_ratings(symbol)
+                elif part == "peers":
+                    result = finance.get_peers(symbol)
+                elif part == "financials":
+                    result = finance.get_financials(symbol)
+                elif part == "news":
+                    result = finance.get_news(symbol)
+                elif part == "movement":
+                    result = finance.get_significant_movement_summary(symbol)
+                else:
+                    result = finance.get_history(symbol, period=period)
+                return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "pplx_finance_watchlist":
+                if arguments.get("quotes"):
+                    result = client.finance.get_watchlist_quotes()
+                else:
+                    result = client.finance.get_watchlist()
+                return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "pplx_attach_file":
+                result = client.attach_file(arguments["path"])
                 return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
 
             else:
